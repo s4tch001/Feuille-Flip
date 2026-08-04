@@ -167,7 +167,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
           width: size.width,
           height: size.height,
           display: size.display,
-          autoCenter: true,
+          autoCenter: false,
           acceleration: true,
           gradients: true,
           duration: 760,
@@ -262,7 +262,14 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
       <section className="reader-stage" ref={stageRef} aria-label={`${title} flipbook viewer`}>
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
-        <div className="flipbook" ref={bookRef} />
+        <div
+          className={`book-frame${
+            currentPage > 1 && currentPage < pageCount ? " book-frame-open" : ""
+          }`}
+        >
+          <div className="flipbook" ref={bookRef} />
+          <span className="book-gutter" aria-hidden="true" />
+        </div>
         <button className="page-arrow page-arrow-right" type="button" onClick={() => turn("next")} disabled={currentPage >= pageCount} aria-label="Next page"><ChevronRightIcon /></button>
       </section>
 
