@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import HTMLFlipBook from "react-pageflip-enhanced";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Brand } from "@/components/brand";
@@ -14,55 +15,47 @@ type FlipbookViewerProps = {
 
 type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument"]>>["promise"] extends Promise<infer T> ? T : never;
 
-let turnScriptPromise: Promise<void> | undefined;
+type PageFlipApi = {
+  flipNext: (corner?: "top" | "bottom") => void;
+  flipPrev: (corner?: "top" | "bottom") => void;
+};
 
-function isTurnJsLoaded(): boolean {
-  const runtimeWindow = window as unknown as { jQuery?: { fn?: { turn?: unknown } } };
-  return typeof runtimeWindow.jQuery?.fn?.turn === "function";
-}
+type FlipbookRef = {
+  pageFlip: () => PageFlipApi | undefined;
+};
 
-async function loadTurnJs(): Promise<void> {
-  if (typeof window === "undefined") return;
-  if (isTurnJsLoaded()) return;
-  if (turnScriptPromise) return turnScriptPromise;
+type FlipEvent = {
+  data: number;
+};
 
-  turnScriptPromise = import("jquery").then((jqueryModule) => {
-    const jquery = jqueryModule.default;
-    window.jQuery = jquery;
-    window.$ = jquery;
+type BookSize = {
+  width: number;
+  height: number;
+  singlePage: boolean;
+};
 
-    return new Promise<void>((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "/vendor/turn.min.js";
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Turn.js could not be loaded."));
-      document.head.appendChild(script);
-    });
-  });
+function calculateBookSize(container: HTMLElement, pageRatio: number): BookSize {
+  const singlePage = window.matchMedia("(max-width: 767px)").matches;
+  const availableWidth = Math.max(240, container.clientWidth - (singlePage ? 20 : 80));
+  const availableHeight = Math.max(300, container.clientHeight - (singlePage ? 18 : 36));
+  const visiblePages = singlePage ? 1 : 2;
+  const width = Math.floor(Math.min(availableWidth / visiblePages, availableHeight * pageRatio));
+  const height = Math.floor(width / pageRatio);
 
-  return turnScriptPromise;
-}
-
-function calculateBookSize(container: HTMLElement, pageRatio: number) {
-  const single = window.matchMedia("(max-width: 767px)").matches;
-  const availableWidth = Math.max(260, container.clientWidth - (single ? 20 : 80));
-  const availableHeight = Math.max(320, container.clientHeight - (single ? 18 : 36));
-  const pageCount = single ? 1 : 2;
-  const widthFromHeight = availableHeight * pageRatio * pageCount;
-  const width = Math.floor(Math.min(availableWidth, widthFromHeight));
-  const height = Math.floor(width / pageCount / pageRatio);
-  return { width, height, display: single ? "single" : "double" };
+  return { width, height, singlePage };
 }
 
 export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps) {
-  const stageRef = useRef<HTMLDivElement>(null);
-  const bookRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const flipbookRef = useRef<FlipbookRef | null>(null);
   const pdfRef = useRef<PdfDocument | null>(null);
-  const initializedTurnRef = useRef(false);
+  const canvasRefs = useRef(new Map<number, HTMLCanvasElement>());
   const renderedPages = useRef(new Set<number>());
-  const renderingPages = useRef(new Set<number>());
-  const pageRatioRef = useRef(0.707);
+  const renderingPages = useRef(new Map<number, number>());
+  const renderGeneration = useRef(0);
+  const currentPageRef = useRef(1);
+  const [bookSize, setBookSize] = useState<BookSize>({ width: 320, height: 452, singlePage: true });
+  const [pageRatio, setPageRatio] = useState(0.707);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [status, setStatus] = useState("Opening your flipbook…");
@@ -72,16 +65,22 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
 
   const renderPage = useCallback(async (pageNumber: number) => {
     const pdf = pdfRef.current;
-    const book = bookRef.current;
-    if (!pdf || !book || pageNumber < 1 || pageNumber > pdf.numPages || renderedPages.current.has(pageNumber) || renderingPages.current.has(pageNumber)) return;
+    const canvas = canvasRefs.current.get(pageNumber);
+    const generation = renderGeneration.current;
 
-    renderingPages.current.add(pageNumber);
+    if (
+      !pdf ||
+      !canvas ||
+      pageNumber < 1 ||
+      pageNumber > pdf.numPages ||
+      renderedPages.current.has(pageNumber) ||
+      renderingPages.current.get(pageNumber) === generation
+    ) return;
+
+    renderingPages.current.set(pageNumber, generation);
     try {
       const page = await pdf.getPage(pageNumber);
-      const canvas = book.querySelector<HTMLCanvasElement>(`canvas[data-page="${pageNumber}"]`);
-      if (!canvas) return;
-      const pageElement = canvas.parentElement;
-      const targetWidth = pageElement?.clientWidth || 520;
+      const targetWidth = canvas.parentElement?.clientWidth || 520;
       const baseViewport = page.getViewport({ scale: 1 });
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
       const viewport = page.getViewport({ scale: (targetWidth * pixelRatio) / baseViewport.width });
@@ -92,10 +91,12 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
       const context = canvas.getContext("2d", { alpha: false });
       if (!context) return;
       await page.render({ canvas, canvasContext: context, viewport }).promise;
+
+      if (generation !== renderGeneration.current || canvasRefs.current.get(pageNumber) !== canvas) return;
       renderedPages.current.add(pageNumber);
       canvas.dataset.rendered = "true";
     } finally {
-      renderingPages.current.delete(pageNumber);
+      if (renderingPages.current.get(pageNumber) === generation) renderingPages.current.delete(pageNumber);
     }
   }, []);
 
@@ -106,6 +107,9 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
   useEffect(() => {
     let cancelled = false;
     let loadingTask: ReturnType<(typeof import("pdfjs-dist"))["getDocument"]> | undefined;
+    const pageCanvases = canvasRefs.current;
+    const renderedPageNumbers = renderedPages.current;
+    const renderingPageNumbers = renderingPages.current;
 
     async function setup() {
       try {
@@ -124,7 +128,9 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
         pdfRef.current = pdf;
         const firstPage = await pdf.getPage(1);
         const firstViewport = firstPage.getViewport({ scale: 1 });
-        pageRatioRef.current = firstViewport.width / firstViewport.height;
+        currentPageRef.current = 1;
+        setCurrentPage(1);
+        setPageRatio(firstViewport.width / firstViewport.height);
         setPageCount(pdf.numPages);
         setStatus("Preparing pages…");
       } catch {
@@ -135,91 +141,76 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
     void setup();
     return () => {
       cancelled = true;
+      renderGeneration.current += 1;
+      renderedPageNumbers.clear();
+      renderingPageNumbers.clear();
+      pageCanvases.clear();
       void loadingTask?.destroy();
       pdfRef.current = null;
     };
   }, [pdfUrl]);
 
   useEffect(() => {
-    if (!pageCount || !bookRef.current || !stageRef.current) return;
-    const bookElement = bookRef.current;
-    const stageElement = stageRef.current;
-    let destroyed = false;
-
-    bookElement.replaceChildren();
-    for (let page = 1; page <= pageCount; page += 1) {
-      const pageElement = document.createElement("div");
-      pageElement.className = "pdf-page";
-      const canvas = document.createElement("canvas");
-      canvas.dataset.page = String(page);
-      canvas.setAttribute("aria-label", `Page ${page}`);
-      pageElement.appendChild(canvas);
-      bookElement.appendChild(pageElement);
-    }
-
-    async function initialize() {
-      try {
-        await Promise.all([loadTurnJs(), renderPage(1), renderPage(2)]);
-        if (destroyed) return;
-        const size = calculateBookSize(stageElement, pageRatioRef.current);
-        const book = window.jQuery(bookElement);
-        book.turn({
-          width: size.width,
-          height: size.height,
-          display: size.display,
-          autoCenter: false,
-          acceleration: true,
-          gradients: true,
-          duration: 760,
-        });
-        initializedTurnRef.current = true;
-        book.on("turning", (_event, page: number) => renderNearby(page));
-        book.on("turned", (_event, page: number) => {
-          setCurrentPage(page);
-          renderNearby(page);
-        });
-        renderNearby(1);
-        setStatus("");
-      } catch {
-        setError("The page-turning viewer could not be started.");
-      }
-    }
+    const stage = stageRef.current;
+    if (!stage) return;
 
     function resizeBook() {
-      if (!isTurnJsLoaded() || !initializedTurnRef.current) return;
-      const size = calculateBookSize(stageElement, pageRatioRef.current);
-      window.jQuery(bookElement).turn("display", size.display);
-      window.jQuery(bookElement).turn("size", size.width, size.height);
+      const stageElement = stageRef.current;
+      if (!stageElement) return;
+      const nextSize = calculateBookSize(stageElement, pageRatio);
+      setBookSize((currentSize) => (
+        currentSize.width === nextSize.width &&
+        currentSize.height === nextSize.height &&
+        currentSize.singlePage === nextSize.singlePage
+          ? currentSize
+          : nextSize
+      ));
     }
 
-    void initialize();
+    resizeBook();
     const resizeObserver = new ResizeObserver(resizeBook);
-    resizeObserver.observe(stageElement);
+    resizeObserver.observe(stage);
+    return () => resizeObserver.disconnect();
+  }, [pageRatio]);
 
-    return () => {
-      destroyed = true;
-      resizeObserver.disconnect();
-      const book = window.jQuery?.(bookElement);
-      if (book && initializedTurnRef.current) {
-        book.off("turning turned");
-        book.turn("destroy");
-        initializedTurnRef.current = false;
-      }
-    };
-  }, [pageCount, renderNearby, renderPage]);
+  useEffect(() => {
+    if (!pageCount) return;
+    renderGeneration.current += 1;
+    renderedPages.current.clear();
+    renderingPages.current.clear();
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      const page = currentPageRef.current;
+      void Promise.all([renderPage(page), renderPage(page + 1)]).then(() => {
+        renderNearby(page);
+        setStatus("");
+      });
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [bookSize, pageCount, renderNearby, renderPage]);
 
   useEffect(() => {
     function handleKeys(event: KeyboardEvent) {
-      if (event.key === "ArrowLeft") window.jQuery?.(bookRef.current!).turn("previous");
-      if (event.key === "ArrowRight") window.jQuery?.(bookRef.current!).turn("next");
+      if (event.key === "ArrowLeft") flipbookRef.current?.pageFlip()?.flipPrev("bottom");
+      if (event.key === "ArrowRight") flipbookRef.current?.pageFlip()?.flipNext("bottom");
       if (event.key === "Escape") setShareOpen(false);
     }
     window.addEventListener("keydown", handleKeys);
     return () => window.removeEventListener("keydown", handleKeys);
   }, []);
 
+  const handleFlip = useCallback((event: FlipEvent) => {
+    const page = event.data + 1;
+    currentPageRef.current = page;
+    setCurrentPage(page);
+    renderNearby(page);
+  }, [renderNearby]);
+
   function turn(direction: "previous" | "next") {
-    if (bookRef.current && isTurnJsLoaded()) window.jQuery(bookRef.current).turn(direction);
+    const pageFlip = flipbookRef.current?.pageFlip();
+    if (direction === "previous") pageFlip?.flipPrev("bottom");
+    else pageFlip?.flipNext("bottom");
   }
 
   async function toggleFullscreen() {
@@ -262,14 +253,52 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
       <section className="reader-stage" ref={stageRef} aria-label={`${title} flipbook viewer`}>
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
-        <div
-          className={`book-frame${
-            currentPage > 1 && currentPage < pageCount ? " book-frame-open" : ""
-          }`}
-        >
-          <div className="flipbook" ref={bookRef} />
-          <span className="book-gutter" aria-hidden="true" />
-        </div>
+        {pageCount > 0 && (
+          <HTMLFlipBook
+            key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}`}
+            ref={flipbookRef}
+            className="flipbook"
+            width={bookSize.width}
+            height={bookSize.height}
+            size="fixed"
+            minWidth={bookSize.width}
+            maxWidth={bookSize.width}
+            minHeight={bookSize.height}
+            maxHeight={bookSize.height}
+            startPage={Math.max(0, currentPage - 1)}
+            drawShadow={true}
+            flippingTime={760}
+            usePortrait={false}
+            singlePage={bookSize.singlePage}
+            startZIndex={0}
+            autoSize={true}
+            maxShadowOpacity={0.35}
+            showCover={false}
+            mobileScrollSupport={true}
+            clickEventForward={true}
+            useMouseEvents={true}
+            swipeDistance={30}
+            showPageCorners={true}
+            disableFlipByClick={false}
+            renderOnlyPageLengthChange={true}
+            onFlip={handleFlip}
+          >
+            {Array.from({ length: pageCount }, (_, index) => {
+              const page = index + 1;
+              return (
+                <div className="pdf-page" data-density="soft" key={page}>
+                  <canvas
+                    ref={(canvas) => {
+                      if (canvas) canvasRefs.current.set(page, canvas);
+                    }}
+                    data-page={page}
+                    aria-label={`Page ${page}`}
+                  />
+                </div>
+              );
+            })}
+          </HTMLFlipBook>
+        )}
         <button className="page-arrow page-arrow-right" type="button" onClick={() => turn("next")} disabled={currentPage >= pageCount} aria-label="Next page"><ChevronRightIcon /></button>
       </section>
 
