@@ -54,9 +54,7 @@ svg { width: 1.2em; height: 1.2em; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; letter-spacing: -.6px; }
 .brand > span:last-child > span { color: var(--purple); }
 .brand-mark { position: relative; width: 35px; height: 35px; display: grid; place-items: center; }
-.brand-mark i { position: absolute; inset: 5px 8px 6px 6px; border: 1.5px solid var(--ink); background: var(--paper); transform: rotate(-9deg); border-radius: 2px; }
-.brand-mark i:nth-child(2) { inset: 4px 5px 7px 9px; transform: rotate(8deg); background: var(--purple-pale); }
-.brand-mark b { position: relative; display: grid; place-items: center; width: 24px; height: 28px; background: var(--purple); color: white; font-family: Georgia, serif; border-radius: 2px; font-size: 18px; box-shadow: 2px 3px 0 var(--ink); }
+.brand-mark img { display: block; width: 100%; height: 100%; }
 
 .button { min-height: 48px; border-radius: 11px; padding: 0 20px; border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center; gap: 9px; font-weight: 750; cursor: pointer; transition: transform .2s ease, box-shadow .2s ease, background .2s ease; }
 .button:hover { transform: translateY(-2px); }
@@ -168,7 +166,6 @@ svg { width: 1.2em; height: 1.2em; }
 .reader-shell { height: 100dvh; min-height: 520px; background: #25283a; color: white; overflow: hidden; display: grid; grid-template-rows: calc(58px + env(safe-area-inset-top, 0px)) minmax(0,1fr) calc(62px + env(safe-area-inset-bottom, 0px)); }
 .reader-header { position: relative; z-index: 20; height: calc(58px + env(safe-area-inset-top, 0px)); display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; padding: env(safe-area-inset-top, 0px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); background: #171927; border-bottom: 1px solid rgba(255,255,255,.1); }
 .reader-header::before { content:""; position:absolute; left:0; right:0; bottom:100%; height:120px; background:#171927; pointer-events:none; }
-.reader-header .brand-mark i { border-color: white; background: #242638; }.reader-header .brand-mark b { box-shadow: 2px 3px 0 #fff; }
 .reader-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: Georgia,serif; font-size: 14px; font-weight: 600; }
 .reader-actions { display: flex; align-items: center; gap: 3px; }
 .reader-action { height: 38px; min-width: 38px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: #d8d9e1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 11px; cursor: pointer; }

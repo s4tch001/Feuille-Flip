@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Feuille Flip</title>
+  <defs>
+    <g id="f" fill="none" stroke="#7057f5" stroke-linecap="round" stroke-linejoin="round" stroke-width="60">
+      <path d="M132 244V92H296" />
+      <path d="M132 176H242" />
+    </g>
+  </defs>
+  <use href="#f" />
+  <use href="#f" transform="rotate(180 256 256)" />
+</svg>
