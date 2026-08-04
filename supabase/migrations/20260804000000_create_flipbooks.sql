@@ -13,6 +13,7 @@ create index if not exists flipbooks_created_at_idx on public.flipbooks (created
 
 alter table public.flipbooks enable row level security;
 revoke all on table public.flipbooks from anon, authenticated;
+grant select, insert, update, delete on table public.flipbooks to service_role;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('flipbooks', 'flipbooks', true, 26214400, array['application/pdf'])
@@ -20,4 +21,3 @@ on conflict (id) do update set
   public = excluded.public,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
-
