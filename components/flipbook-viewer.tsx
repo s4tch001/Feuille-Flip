@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import HTMLFlipBook from "react-pageflip-enhanced";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Brand } from "@/components/brand";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIcon } from "@/components/icons";
@@ -18,6 +18,16 @@ type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument
 type PageFlipApi = {
   flipNext: (corner?: "top" | "bottom") => void;
   flipPrev: (corner?: "top" | "bottom") => void;
+  getFlipController: () => {
+    getCalculation: () => { getDirection: () => number } | null;
+  };
+  getPage: (page: number) => { setDensity: (density: "soft" | "hard") => void };
+  getPageCollection: () => {
+    getCurrentSpreadIndex: () => number;
+    getSpread: () => number[][];
+  };
+  getPageCount: () => number;
+  update: () => void;
 };
 
 type FlipbookRef = {
@@ -28,11 +38,28 @@ type FlipEvent = {
   data: number;
 };
 
+type FlipStateEvent = {
+  data: "user_fold" | "fold_corner" | "flipping" | "read";
+};
+
 type BookSize = {
   width: number;
   height: number;
   singlePage: boolean;
 };
+
+type BookPose = "front" | "open" | "back";
+
+type BookPage = {
+  key: string;
+  pdfPage: number | null;
+};
+
+function getBookPose(page: number, totalPages: number): BookPose {
+  if (page <= 0) return "front";
+  if (page >= totalPages - 1) return "back";
+  return "open";
+}
 
 function calculateBookSize(container: HTMLElement, pageRatio: number): BookSize {
   const singlePage = window.matchMedia("(max-width: 767px)").matches;
@@ -54,14 +81,49 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
   const renderingPages = useRef(new Map<number, number>());
   const renderGeneration = useRef(0);
   const currentPageRef = useRef(1);
-  const [bookSize, setBookSize] = useState<BookSize>({ width: 320, height: 452, singlePage: true });
-  const [pageRatio, setPageRatio] = useState(0.707);
+  const currentBookPageRef = useRef(0);
+  const [bookSize, setBookSize] = useState<BookSize | null>(null);
+  const [pageRatio, setPageRatio] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [currentBookPage, setCurrentBookPage] = useState(0);
+  const [bookPose, setBookPose] = useState<BookPose>("front");
   const [pageCount, setPageCount] = useState(0);
   const [status, setStatus] = useState("Opening your flipbook…");
   const [error, setError] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const bookPages = useMemo<BookPage[]>(() => {
+    const pages: BookPage[] = Array.from({ length: pageCount }, (_, index) => ({
+      key: `pdf-${index + 1}`,
+      pdfPage: index + 1,
+    }));
+
+    if (pageCount > 1 && pageCount % 2 === 1) {
+      pages.splice(pageCount - 1, 0, { key: "blank-endpaper", pdfPage: null });
+    }
+
+    return pages;
+  }, [pageCount]);
+
+  const pageElements = useMemo(() => bookPages.map((bookPage) => (
+    <div
+      className={`pdf-page${bookPage.pdfPage === null ? " pdf-page-blank" : ""}`}
+      data-density="soft"
+      key={bookPage.key}
+      aria-label={bookPage.pdfPage === null ? "Blank endpaper" : undefined}
+    >
+      {bookPage.pdfPage !== null && (
+        <canvas
+          ref={(canvas) => {
+            if (canvas) canvasRefs.current.set(bookPage.pdfPage!, canvas);
+          }}
+          data-page={bookPage.pdfPage}
+          aria-label={`Page ${bookPage.pdfPage}`}
+        />
+      )}
+    </div>
+  )), [bookPages]);
 
   const renderPage = useCallback(async (pageNumber: number) => {
     const pdf = pdfRef.current;
@@ -114,6 +176,8 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
     async function setup() {
       try {
         setError("");
+        setPageCount(0);
+        setBookSize(null);
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL(
           "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -129,7 +193,10 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
         const firstPage = await pdf.getPage(1);
         const firstViewport = firstPage.getViewport({ scale: 1 });
         currentPageRef.current = 1;
+        currentBookPageRef.current = 0;
         setCurrentPage(1);
+        setCurrentBookPage(0);
+        setBookPose("front");
         setPageRatio(firstViewport.width / firstViewport.height);
         setPageCount(pdf.numPages);
         setStatus("Preparing pages…");
@@ -152,13 +219,15 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
 
   useEffect(() => {
     const stage = stageRef.current;
-    if (!stage) return;
+    if (!stage || pageRatio === null) return;
+    const ratio = pageRatio;
 
     function resizeBook() {
       const stageElement = stageRef.current;
       if (!stageElement) return;
-      const nextSize = calculateBookSize(stageElement, pageRatio);
+      const nextSize = calculateBookSize(stageElement, ratio);
       setBookSize((currentSize) => (
+        currentSize &&
         currentSize.width === nextSize.width &&
         currentSize.height === nextSize.height &&
         currentSize.singlePage === nextSize.singlePage
@@ -174,7 +243,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
   }, [pageRatio]);
 
   useEffect(() => {
-    if (!pageCount) return;
+    if (!bookSize || !pageCount) return;
     renderGeneration.current += 1;
     renderedPages.current.clear();
     renderingPages.current.clear();
@@ -201,11 +270,51 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
   }, []);
 
   const handleFlip = useCallback((event: FlipEvent) => {
-    const page = event.data + 1;
+    const bookPage = Math.max(0, Math.min(bookPages.length - 1, Math.trunc(event.data)));
+    const page = bookPages[bookPage]?.pdfPage ?? currentPageRef.current;
+    currentBookPageRef.current = bookPage;
     currentPageRef.current = page;
+    setCurrentBookPage(bookPage);
     setCurrentPage(page);
+    setBookPose(getBookPose(bookPage, bookPages.length));
     renderNearby(page);
-  }, [renderNearby]);
+  }, [bookPages, renderNearby, setBookPose, setCurrentBookPage, setCurrentPage]);
+
+  const handleInit = useCallback(() => {
+    const pageFlip = flipbookRef.current?.pageFlip();
+    if (!pageFlip) return;
+    const totalPages = pageFlip.getPageCount();
+    if (totalPages > 0) {
+      pageFlip.getPage(0).setDensity("soft");
+      pageFlip.getPage(totalPages - 1).setDensity("soft");
+      pageFlip.update();
+    }
+    setBookPose(getBookPose(currentBookPageRef.current, totalPages));
+  }, [setBookPose]);
+
+  const handleFlipState = useCallback((event: FlipStateEvent) => {
+    const pageFlip = flipbookRef.current?.pageFlip();
+    if (!pageFlip) return;
+
+    if (event.data === "read") {
+      setBookPose(getBookPose(currentBookPageRef.current, pageFlip.getPageCount()));
+      return;
+    }
+
+    if (event.data === "user_fold") {
+      const current = currentBookPageRef.current;
+      if (current === 0 || current === pageFlip.getPageCount() - 1) setBookPose("open");
+      return;
+    }
+
+    if (event.data !== "flipping") return;
+    const direction = pageFlip.getFlipController().getCalculation()?.getDirection();
+    if (direction === undefined) return;
+    const pageCollection = pageFlip.getPageCollection();
+    const currentSpread = pageCollection.getCurrentSpreadIndex();
+    const targetSpread = pageCollection.getSpread()[currentSpread + (direction === 0 ? 1 : -1)];
+    if (targetSpread) setBookPose(getBookPose(targetSpread[0], pageFlip.getPageCount()));
+  }, [setBookPose]);
 
   function turn(direction: "previous" | "next") {
     const pageFlip = flipbookRef.current?.pageFlip();
@@ -253,51 +362,43 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
       <section className="reader-stage" ref={stageRef} aria-label={`${title} flipbook viewer`}>
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
-        {pageCount > 0 && (
-          <HTMLFlipBook
-            key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}`}
-            ref={flipbookRef}
-            className="flipbook"
-            width={bookSize.width}
-            height={bookSize.height}
-            size="fixed"
-            minWidth={bookSize.width}
-            maxWidth={bookSize.width}
-            minHeight={bookSize.height}
-            maxHeight={bookSize.height}
-            startPage={Math.max(0, currentPage - 1)}
-            drawShadow={true}
-            flippingTime={760}
-            usePortrait={false}
-            singlePage={bookSize.singlePage}
-            startZIndex={0}
-            autoSize={true}
-            maxShadowOpacity={0.35}
-            showCover={false}
-            mobileScrollSupport={true}
-            clickEventForward={true}
-            useMouseEvents={true}
-            swipeDistance={30}
-            showPageCorners={true}
-            disableFlipByClick={false}
-            renderOnlyPageLengthChange={true}
-            onFlip={handleFlip}
-          >
-            {Array.from({ length: pageCount }, (_, index) => {
-              const page = index + 1;
-              return (
-                <div className="pdf-page" data-density="soft" key={page}>
-                  <canvas
-                    ref={(canvas) => {
-                      if (canvas) canvasRefs.current.set(page, canvas);
-                    }}
-                    data-page={page}
-                    aria-label={`Page ${page}`}
-                  />
-                </div>
-              );
-            })}
-          </HTMLFlipBook>
+        {pageCount > 0 && bookSize && (
+          <div className={`book-stage book-stage--${bookPose}`}>
+            <span className="book-gutter" aria-hidden="true" />
+            <HTMLFlipBook
+              key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
+              ref={flipbookRef}
+              className="flipbook"
+              width={bookSize.width}
+              height={bookSize.height}
+              size="fixed"
+              minWidth={bookSize.width}
+              maxWidth={bookSize.width}
+              minHeight={bookSize.height}
+              maxHeight={bookSize.height}
+              startPage={currentBookPage}
+              drawShadow={true}
+              flippingTime={760}
+              usePortrait={false}
+              singlePage={bookSize.singlePage}
+              startZIndex={1}
+              autoSize={true}
+              maxShadowOpacity={0.52}
+              showCover={true}
+              mobileScrollSupport={true}
+              clickEventForward={true}
+              useMouseEvents={true}
+              swipeDistance={30}
+              showPageCorners={true}
+              disableFlipByClick={false}
+              renderOnlyPageLengthChange={true}
+              onFlip={handleFlip}
+              onInit={handleInit}
+              onChangeState={handleFlipState}
+            >
+              {pageElements}
+            </HTMLFlipBook>
+          </div>
         )}
         <button className="page-arrow page-arrow-right" type="button" onClick={() => turn("next")} disabled={currentPage >= pageCount} aria-label="Next page"><ChevronRightIcon /></button>
       </section>

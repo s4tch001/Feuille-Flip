@@ -205,6 +205,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
                 <strong>{file ? file.name : "Choose a PDF or drop it here"}</strong>
                 <small>{file ? `${(file.size / 1024 / 1024).toFixed(1)} MB · Ready to flip` : "PDF only · Maximum 25 MB"}</small>
               </button>
+              <p className="pdf-size-note">Best results: use A4 portrait for every page.</p>
 
               {error && <p className="form-error" role="alert">{error}</p>}
 
@@ -219,4 +220,3 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     </>
   );
 }
-
