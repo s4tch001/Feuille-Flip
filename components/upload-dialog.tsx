@@ -1,6 +1,5 @@
 "use client";
 
-import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRightIcon, CloseIcon, CopyIcon, FileIcon, ShareIcon, UploadIcon } from "@/components/icons";
@@ -21,6 +20,7 @@ type PresignResponse = {
 };
 type CompleteResponse = { slug: string; url: string };
 const OPEN_UPLOAD_DIALOG_EVENT = "feuille:open-upload-dialog";
+const TURNSTILE_SCRIPT_ID = "cf-turnstile-script";
 
 declare global {
   interface Window {
@@ -116,7 +116,6 @@ export function UploadTrigger({ className = "button button-primary" }: { classNa
 }
 
 export function UploadDialog() {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetRef = useRef<string | null>(null);
@@ -140,29 +139,81 @@ export function UploadDialog() {
   }, [copied]);
 
   useEffect(() => {
+    if (!turnstileSiteKey) return;
+    if (window.turnstile) {
+      window.setTimeout(() => setTurnstileScriptReady(true), 0);
+      return;
+    }
+
+    let cancelled = false;
+    const existingScript = document.getElementById(TURNSTILE_SCRIPT_ID) as HTMLScriptElement | null;
+    const script = existingScript ?? document.createElement("script");
+
+    function markReady() {
+      script.dataset.loaded = "true";
+      if (!cancelled) setTurnstileScriptReady(true);
+    }
+
+    function markFailed() {
+      if (!cancelled) setError("Security check could not load. Please refresh and try again.");
+    }
+
+    script.addEventListener("load", markReady);
+    script.addEventListener("error", markFailed);
+
+    if (script.dataset.loaded === "true") {
+      markReady();
+    } else if (!existingScript) {
+      script.id = TURNSTILE_SCRIPT_ID;
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+      script.removeEventListener("load", markReady);
+      script.removeEventListener("error", markFailed);
+    };
+  }, [turnstileSiteKey]);
+
+  useEffect(() => {
     if (!dialogOpen || !turnstileSiteKey || !turnstileScriptReady || !window.turnstile || !turnstileRef.current || turnstileWidgetRef.current) return;
     const siteKey = turnstileSiteKey;
     let cancelled = false;
 
-    window.turnstile.ready(() => {
-      if (cancelled || turnstileWidgetRef.current || !turnstileRef.current) return;
-      turnstileWidgetRef.current = window.turnstile!.render(turnstileRef.current, {
-        sitekey: siteKey,
-        action: "turnstile-spin-v1",
-        callback: (token) => {
-          setTurnstileToken(token);
-          setError("");
-        },
-        "error-callback": (code) => {
+    try {
+      window.turnstile.ready(() => {
+        if (cancelled || turnstileWidgetRef.current || !turnstileRef.current) return;
+        try {
+          turnstileWidgetRef.current = window.turnstile!.render(turnstileRef.current, {
+            sitekey: siteKey,
+            action: "turnstile-spin-v1",
+            callback: (token) => {
+              setTurnstileToken(token);
+              setError("");
+            },
+            "error-callback": (code) => {
+              setTurnstileToken("");
+              setError(`Security check failed (${code}). Check your Turnstile site key and allowed domains.`);
+            },
+            "expired-callback": () => {
+              setTurnstileToken("");
+              setError("Security check expired. Please complete it again.");
+            },
+          });
+        } catch {
           setTurnstileToken("");
-          setError(`Security check failed (${code}). Check your Turnstile site key and allowed domains.`);
-        },
-        "expired-callback": () => {
-          setTurnstileToken("");
-          setError("Security check expired. Please complete it again.");
-        },
+          setError("Security check could not load. Please refresh and try again.");
+        }
       });
-    });
+    } catch {
+      window.setTimeout(() => {
+        setTurnstileToken("");
+        setError("Security check could not load. Please refresh and try again.");
+      }, 0);
+    }
 
     return () => {
       cancelled = true;
@@ -171,23 +222,32 @@ export function UploadDialog() {
 
   useEffect(() => {
     function openDialog() {
-      if (dialogRef.current?.open) return;
       setError("");
-      dialogRef.current?.showModal();
       setDialogOpen(true);
+      if (window.turnstile) setTurnstileScriptReady(true);
     }
 
     window.addEventListener(OPEN_UPLOAD_DIALOG_EVENT, openDialog);
     return () => window.removeEventListener(OPEN_UPLOAD_DIALOG_EVENT, openDialog);
-  }, [turnstileSiteKey]);
+  }, []);
 
   function resetTurnstile() {
     setTurnstileToken("");
-    window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
+    try {
+      window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
+    } catch {
+      disposeTurnstile();
+    }
   }
 
   function disposeTurnstile() {
-    if (turnstileWidgetRef.current) window.turnstile?.remove(turnstileWidgetRef.current);
+    if (turnstileWidgetRef.current) {
+      try {
+        window.turnstile?.remove(turnstileWidgetRef.current);
+      } catch {
+        // The widget can already be gone if the modal unmounted during a script callback.
+      }
+    }
     turnstileWidgetRef.current = null;
     turnstileRef.current?.replaceChildren();
     setTurnstileToken("");
@@ -195,10 +255,6 @@ export function UploadDialog() {
 
   function closeDialog() {
     if (state === "preparing" || state === "uploading" || state === "publishing") return;
-    dialogRef.current?.close();
-  }
-
-  function handleDialogClose() {
     setDialogOpen(false);
     disposeTurnstile();
     setState("idle");
@@ -312,16 +368,10 @@ export function UploadDialog() {
 
   return (
     <>
-      {turnstileSiteKey && (
-        <Script
-          src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
-          strategy="afterInteractive"
-          onReady={() => setTurnstileScriptReady(true)}
-        />
-      )}
-      <dialog className="upload-dialog" ref={dialogRef} onClose={handleDialogClose} onPointerDown={(event) => {
-        if (event.target === dialogRef.current) closeDialog();
+      {dialogOpen && <div className="upload-dialog-backdrop" onPointerDown={(event) => {
+        if (event.target === event.currentTarget) closeDialog();
       }}>
+      <section className="upload-dialog" role="dialog" aria-modal="true" aria-labelledby="upload-dialog-title">
         <div className="dialog-card">
           <button className="icon-button dialog-close" type="button" onClick={closeDialog} aria-label="Close upload dialog">
             <CloseIcon />
@@ -331,7 +381,7 @@ export function UploadDialog() {
             <section className="success-panel" aria-live="polite">
               <span className="success-check">✓</span>
               <p className="eyebrow">Your flipbook is live</p>
-              <h2>Ready to be shared.</h2>
+              <h2 id="upload-dialog-title">Ready to be shared.</h2>
               <p className="muted">Anyone with this public link can open your flipbook.</p>
               <div className="published-link">
                 <span>{absoluteUrl}</span>
@@ -351,7 +401,7 @@ export function UploadDialog() {
           ) : (
             <form onSubmit={handleSubmit}>
               <p className="eyebrow">Create your flipbook</p>
-              <h2>Turn a PDF into something people want to explore.</h2>
+              <h2 id="upload-dialog-title">Turn a PDF into something people want to explore.</h2>
               <p className="muted">No editor. No setup. Add a title, choose your PDF, and publish.</p>
 
               <label className="field-label" htmlFor="flipbook-title">Title <span>Required</span></label>
@@ -404,7 +454,8 @@ export function UploadDialog() {
             </form>
           )}
         </div>
-      </dialog>
+      </section>
+      </div>}
     </>
   );
 }
