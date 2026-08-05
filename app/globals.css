@@ -192,13 +192,9 @@ svg { width: 1.2em; height: 1.2em; }
   .reader-header { height:calc(54px + env(safe-area-inset-top, 0px));padding:env(safe-area-inset-top, 0px) max(18px, env(safe-area-inset-right, 0px)) 0 max(18px, env(safe-area-inset-left, 0px));gap:14px}.reader-title{font-size:15px}.reader-actions{gap:3px}.reader-action{padding:0 9px}.reader-action span{display:inline}.reader-share-card{right:18px;top:calc(48px + env(safe-area-inset-top, 0px))}.page-arrow{display:grid}
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .book-gutter { display:none; }
   .reader-stage .flipbook { touch-action:none; }
-  .pdf-page.--hard { overflow:visible; backface-visibility:visible !important; -webkit-backface-visibility:visible !important; }
-  .pdf-page.--hard::before, .pdf-page.--hard::after { display:none; }
-  .pdf-page.--hard .pdf-page-front, .pdf-page.--hard .pdf-page-back { backface-visibility:hidden; -webkit-backface-visibility:hidden; }
-  .pdf-page.--hard .pdf-page-back { display:block; z-index:2; background:#f5f4f0; transform:rotateY(180deg); box-shadow:inset 12px 0 18px -16px rgba(0,0,0,.72),inset 0 0 0 1px rgba(42,36,27,.15); }
   .book-stage--press-previous .pdf-page { box-shadow:inset 12px 0 18px -16px rgba(0,0,0,.8),inset 0 0 0 1px rgba(255,255,255,.16); }
   .book-stage--press-next .pdf-page { box-shadow:inset -12px 0 18px -16px rgba(0,0,0,.8),inset 0 0 0 1px rgba(255,255,255,.16); }
   .reader-heading { gap:8px; }

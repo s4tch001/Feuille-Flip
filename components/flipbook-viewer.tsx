@@ -65,7 +65,7 @@ function getBookPose(page: number, totalPages: number): BookPose {
 }
 
 function calculateBookSize(container: HTMLElement, pageRatio: number): BookSize {
-  const singlePage = window.matchMedia("(max-width: 767px)").matches;
+  const singlePage = window.matchMedia("(max-width: 1023px)").matches;
   const availableWidth = Math.max(240, container.clientWidth - (singlePage ? 20 : 80));
   const availableHeight = Math.max(300, container.clientHeight - (singlePage ? 18 : 36));
   const visiblePages = singlePage ? 1 : 2;
@@ -412,12 +412,8 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     const pageFlip = flipbookRef.current?.pageFlip();
     if (!pageFlip) return;
     const totalPages = pageFlip.getPageCount();
-    if (bookSize?.singlePage && totalPages > 0) {
-      for (let page = 0; page < totalPages; page += 1) pageFlip.getPage(page).setDensity("hard");
-      pageFlip.update();
-    }
     setBookPose(getBookPose(currentBookPageRef.current, totalPages));
-  }, [bookSize?.singlePage, setBookPose]);
+  }, [setBookPose]);
 
   function turn(direction: "previous" | "next") {
     const pageFlip = flipbookRef.current?.pageFlip();
