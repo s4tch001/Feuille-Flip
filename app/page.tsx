@@ -2,7 +2,7 @@ import Image from "next/image";
 
 import { Brand } from "@/components/brand";
 import { ArrowRightIcon, FileIcon, ShareIcon, SparkIcon, UploadIcon } from "@/components/icons";
-import { UploadDialog } from "@/components/upload-dialog";
+import { UploadDialog, UploadTrigger } from "@/components/upload-dialog";
 import heroImage from "@/public/images/hero.webp";
 
 export default function HomePage() {
@@ -11,7 +11,7 @@ export default function HomePage() {
       <header className="site-header">
         <nav className="site-nav container" aria-label="Main navigation">
           <Brand />
-          <UploadDialog triggerClassName="button button-primary nav-upload" />
+          <UploadTrigger className="button button-primary nav-upload" />
         </nav>
       </header>
 
@@ -21,7 +21,7 @@ export default function HomePage() {
           <h1>Your PDF,<br /><em>made to flip.</em></h1>
           <p>Upload a PDF and turn it into a beautiful, shareable flipbook in seconds. No editor, no learning curve.</p>
           <div className="hero-actions">
-            <UploadDialog />
+            <UploadTrigger />
             <a className="hero-link" href="#how-it-works">See how it works <ArrowRightIcon /></a>
           </div>
           <p className="hero-note"><span>✓</span> No account needed <i /> <span>✓</span> Mobile ready</p>
@@ -48,7 +48,7 @@ export default function HomePage() {
           </div>
           <div className="bottom-cta">
             <div><span>Ready when you are.</span><h2>Make your first flipbook.</h2></div>
-            <UploadDialog />
+            <UploadTrigger />
           </div>
         </div>
       </section>
@@ -58,6 +58,7 @@ export default function HomePage() {
         <p>PDFs deserve a little more life.</p>
         <span>© {new Date().getFullYear()} Feuille Flip</span>
       </footer>
+      <UploadDialog />
     </main>
   );
 }
