@@ -5,7 +5,7 @@ import HTMLFlipBook from "react-pageflip-enhanced";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Brand } from "@/components/brand";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIcon, ZoomInIcon, ZoomOutIcon } from "@/components/icons";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIcon } from "@/components/icons";
 
 type FlipbookViewerProps = {
   title: string;
@@ -66,12 +66,12 @@ function getBookPose(page: number, totalPages: number): BookPose {
   return "open";
 }
 
-function calculateBookSize(container: HTMLElement, pageRatio: number, zoom: number): BookSize {
+function calculateBookSize(container: HTMLElement, pageRatio: number): BookSize {
   const singlePage = window.matchMedia("(max-width: 767px)").matches;
-  const availableWidth = Math.max(240, container.clientWidth - (singlePage ? 12 : 44));
-  const availableHeight = Math.max(300, container.clientHeight - (singlePage ? 12 : 20));
+  const availableWidth = Math.max(240, container.clientWidth - (singlePage ? 20 : 80));
+  const availableHeight = Math.max(300, container.clientHeight - (singlePage ? 18 : 36));
   const visiblePages = singlePage ? 1 : 2;
-  const width = Math.floor(Math.min(availableWidth / visiblePages, availableHeight * pageRatio) * zoom);
+  const width = Math.floor(Math.min(availableWidth / visiblePages, availableHeight * pageRatio));
   const height = Math.floor(width / pageRatio);
 
   return { width, height, singlePage };
@@ -98,7 +98,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   const [error, setError] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [zoom, setZoom] = useState(1);
+  const [mobilePress, setMobilePress] = useState<"previous" | "next" | null>(null);
 
   const bookPages = useMemo<BookPage[]>(() => {
     const pages: BookPage[] = pageUrls?.length
@@ -260,7 +260,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     function resizeBook() {
       const stageElement = stageRef.current;
       if (!stageElement) return;
-      const nextSize = calculateBookSize(stageElement, ratio, zoom);
+      const nextSize = calculateBookSize(stageElement, ratio);
       setBookSize((currentSize) => (
         currentSize &&
         currentSize.width === nextSize.width &&
@@ -275,7 +275,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     const resizeObserver = new ResizeObserver(resizeBook);
     resizeObserver.observe(stage);
     return () => resizeObserver.disconnect();
-  }, [pageRatio, zoom]);
+  }, [pageRatio]);
 
   useEffect(() => {
     if (!bookSize || !pageCount) return;
@@ -307,64 +307,71 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || !bookSize?.singlePage) return;
-    let touchStart: { x: number; y: number } | null = null;
-    let pendingTurn: "previous" | "next" | null = null;
+    let press: { direction: "previous" | "next"; corner: "top" | "bottom"; startedAt: number } | null = null;
 
     function isFlipbookTouch(event: TouchEvent) {
       return event.target instanceof Element && event.target.closest(".flipbook");
     }
 
-    function trackTouchStart(event: TouchEvent) {
+    function startEdgePress(event: TouchEvent) {
       if (!isFlipbookTouch(event) || event.changedTouches.length === 0) return;
       const touch = event.changedTouches[0];
-      touchStart = { x: touch.clientX, y: touch.clientY };
-      pendingTurn = null;
-    }
+      const book = (event.target as Element).closest(".flipbook");
+      if (!book) return;
 
-    function deferSwipeUntilRelease(event: TouchEvent) {
-      if (!touchStart || !isFlipbookTouch(event) || event.changedTouches.length === 0) return;
-      const touch = event.changedTouches[0];
-      const dx = touch.clientX - touchStart.x;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(touch.clientY - touchStart.y);
+      const rect = book.getBoundingClientRect();
+      const edgeWidth = Math.min(rect.width * 0.28, 104);
+      const direction = touch.clientX <= rect.left + edgeWidth
+        ? "previous"
+        : touch.clientX >= rect.right - edgeWidth
+          ? "next"
+          : null;
+      if (!direction) return;
 
-      if (absDx >= 30 && absDx > absDy * 1.2) {
-        pendingTurn = dx > 0 ? "previous" : "next";
-        if (event.cancelable) event.preventDefault();
-      }
-
+      press = {
+        direction,
+        corner: touch.clientY - rect.top < rect.height / 2 ? "top" : "bottom",
+        startedAt: Date.now(),
+      };
+      setMobilePress(direction);
+      if (event.cancelable) event.preventDefault();
       event.stopPropagation();
     }
 
-    function releaseDeferredSwipe(event: TouchEvent) {
-      if (!pendingTurn || !isFlipbookTouch(event)) {
-        touchStart = null;
-        pendingTurn = null;
-        return;
-      }
+    function holdEdgePress(event: TouchEvent) {
+      if (!press) return;
+      if (event.cancelable) event.preventDefault();
+      event.stopPropagation();
+    }
 
+    function releaseEdgePress(event: TouchEvent) {
+      const activePress = press;
+      press = null;
+      setMobilePress(null);
+      if (!activePress) return;
       event.stopPropagation();
       if (event.cancelable) event.preventDefault();
-      if (pendingTurn === "previous") flipbookRef.current?.pageFlip()?.flipPrev("bottom");
-      else flipbookRef.current?.pageFlip()?.flipNext("bottom");
-      touchStart = null;
-      pendingTurn = null;
+
+      // A deliberate edge press turns only when released, matching a page-corner gesture.
+      if (Date.now() - activePress.startedAt < 120) return;
+      if (activePress.direction === "previous") flipbookRef.current?.pageFlip()?.flipPrev(activePress.corner);
+      else flipbookRef.current?.pageFlip()?.flipNext(activePress.corner);
     }
 
-    function cancelDeferredSwipe() {
-      touchStart = null;
-      pendingTurn = null;
+    function cancelEdgePress() {
+      press = null;
+      setMobilePress(null);
     }
 
-    stage.addEventListener("touchstart", trackTouchStart, { capture: true });
-    stage.addEventListener("touchmove", deferSwipeUntilRelease, { capture: true });
-    stage.addEventListener("touchend", releaseDeferredSwipe, { capture: true });
-    stage.addEventListener("touchcancel", cancelDeferredSwipe, { capture: true });
+    stage.addEventListener("touchstart", startEdgePress, { capture: true, passive: false });
+    stage.addEventListener("touchmove", holdEdgePress, { capture: true, passive: false });
+    stage.addEventListener("touchend", releaseEdgePress, { capture: true, passive: false });
+    stage.addEventListener("touchcancel", cancelEdgePress, { capture: true });
     return () => {
-      stage.removeEventListener("touchstart", trackTouchStart, { capture: true });
-      stage.removeEventListener("touchmove", deferSwipeUntilRelease, { capture: true });
-      stage.removeEventListener("touchend", releaseDeferredSwipe, { capture: true });
-      stage.removeEventListener("touchcancel", cancelDeferredSwipe, { capture: true });
+      stage.removeEventListener("touchstart", startEdgePress, { capture: true });
+      stage.removeEventListener("touchmove", holdEdgePress, { capture: true });
+      stage.removeEventListener("touchend", releaseEdgePress, { capture: true });
+      stage.removeEventListener("touchcancel", cancelEdgePress, { capture: true });
     };
   }, [bookSize?.singlePage]);
 
@@ -443,8 +450,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         <p className="reader-page-count" aria-label={`Page ${Math.min(currentPage, pageCount || 1)} of ${pageCount || "unknown"}`}><strong>{Math.min(currentPage, pageCount || 1)}</strong><span> / {pageCount || "—"}</span></p>
         <div className="reader-actions">
           {pdfUrl && <a className="reader-action" href={pdfUrl} download aria-label="Download PDF"><DownloadIcon /><span>Download</span></a>}
-          <button className="reader-action" type="button" onClick={() => setZoom((currentZoom) => Math.max(0.85, Number((currentZoom - 0.15).toFixed(2))))} disabled={zoom <= 0.85} aria-label="Zoom out"><ZoomOutIcon /><span>Zoom out</span></button>
-          <button className="reader-action" type="button" onClick={() => setZoom((currentZoom) => Math.min(1.3, Number((currentZoom + 0.15).toFixed(2))))} disabled={zoom >= 1.3} aria-label="Zoom in"><ZoomInIcon /><span>Zoom in</span></button>
           <button className="reader-action" type="button" onClick={quickShare} aria-expanded={shareOpen}><ShareIcon /><span>Share</span></button>
           <button className="reader-action fullscreen-button" type="button" onClick={toggleFullscreen} aria-label="Toggle full screen"><MaximizeIcon /><span>Full screen</span></button>
         </div>
@@ -463,7 +468,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
         {pageCount > 0 && bookSize && (
-          <div className={`book-stage book-stage--${bookPose}${edgeFold ? ` book-stage--edge-fold book-stage--edge-${edgeFold}` : ""}`}>
+          <div className={`book-stage book-stage--${bookPose}${edgeFold ? ` book-stage--edge-fold book-stage--edge-${edgeFold}` : ""}${mobilePress ? ` book-stage--press-${mobilePress}` : ""}`}>
             <span className="book-gutter" aria-hidden="true" />
             <HTMLFlipBook
               key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
@@ -485,9 +490,9 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
               autoSize={true}
               maxShadowOpacity={0.52}
               showCover={true}
-              mobileScrollSupport={true}
+              mobileScrollSupport={!bookSize.singlePage}
               clickEventForward={true}
-              useMouseEvents={true}
+              useMouseEvents={!bookSize.singlePage}
               swipeDistance={30}
               showPageCorners={true}
               disableFlipByClick={false}
