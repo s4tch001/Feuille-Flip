@@ -49,6 +49,7 @@ type BookSize = {
 };
 
 type BookPose = "front" | "open" | "back";
+type EdgeFold = "front" | "back" | null;
 
 type BookPage = {
   key: string;
@@ -87,6 +88,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
   const [currentPage, setCurrentPage] = useState(1);
   const [currentBookPage, setCurrentBookPage] = useState(0);
   const [bookPose, setBookPose] = useState<BookPose>("front");
+  const [edgeFold, setEdgeFold] = useState<EdgeFold>(null);
   const [pageCount, setPageCount] = useState(0);
   const [status, setStatus] = useState("Opening your flipbook…");
   const [error, setError] = useState("");
@@ -197,6 +199,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
         setCurrentPage(1);
         setCurrentBookPage(0);
         setBookPose("front");
+        setEdgeFold(null);
         setPageRatio(firstViewport.width / firstViewport.height);
         setPageCount(pdf.numPages);
         setStatus("Preparing pages…");
@@ -360,8 +363,21 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
     const pageFlip = flipbookRef.current?.pageFlip();
     if (!pageFlip) return;
 
-    if (event.data === "read") setBookPose(getBookPose(currentBookPageRef.current, pageFlip.getPageCount()));
-  }, [setBookPose]);
+    const totalPages = pageFlip.getPageCount();
+
+    if (event.data === "read") {
+      setEdgeFold(null);
+      setBookPose(getBookPose(currentBookPageRef.current, totalPages));
+      return;
+    }
+
+    if (event.data === "user_fold" || event.data === "fold_corner" || event.data === "flipping") {
+      const current = currentBookPageRef.current;
+      if (current <= 1) setEdgeFold("front");
+      else if (current >= totalPages - 2) setEdgeFold("back");
+      else setEdgeFold(null);
+    }
+  }, [setBookPose, setEdgeFold]);
 
   function turn(direction: "previous" | "next") {
     const pageFlip = flipbookRef.current?.pageFlip();
@@ -413,7 +429,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
         {pageCount > 0 && bookSize && (
-          <div className={`book-stage book-stage--${bookPose}`}>
+          <div className={`book-stage book-stage--${bookPose}${edgeFold ? ` book-stage--edge-fold book-stage--edge-${edgeFold}` : ""}`}>
             <span className="book-gutter" aria-hidden="true" />
             <HTMLFlipBook
               key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}

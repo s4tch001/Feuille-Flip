@@ -15,6 +15,7 @@ export const presignUploadSchema = z.object({
   fileName: z.string().trim().min(1).max(255),
   fileSize: z.number().int().positive().max(MAX_PDF_BYTES),
   mimeType: z.literal("application/pdf"),
+  turnstileToken: z.string().trim().min(1).max(4096).optional(),
 });
 
 export const completeUploadSchema = z.object({
@@ -22,4 +23,3 @@ export const completeUploadSchema = z.object({
 });
 
 export type PresignUploadInput = z.infer<typeof presignUploadSchema>;
-

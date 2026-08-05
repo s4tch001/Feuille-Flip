@@ -8,6 +8,7 @@ import { getClientIp, hasTrustedOrigin, isRateLimited } from "@/lib/request-secu
 import { presignUploadSchema } from "@/lib/schemas";
 import { slugifyTitle } from "@/lib/slug";
 import { createSupabaseAdmin, getSupabaseSecret } from "@/lib/supabase/server";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 import { createUploadTicket } from "@/lib/upload-ticket";
 
 export const runtime = "nodejs";
@@ -16,7 +17,8 @@ export async function POST(request: Request) {
   if (!hasTrustedOrigin(request)) {
     return apiError(403, "UNTRUSTED_ORIGIN", "This upload request was not accepted.");
   }
-  if (isRateLimited(`presign:${getClientIp(request)}`)) {
+  const clientIp = getClientIp(request);
+  if (isRateLimited(`presign:${clientIp}`)) {
     return apiError(429, "RATE_LIMITED", "Too many upload attempts. Please wait a minute.");
   }
   if (!request.headers.get("content-type")?.startsWith("application/json")) {
@@ -33,6 +35,10 @@ export async function POST(request: Request) {
   const parsed = presignUploadSchema.safeParse(input);
   if (!parsed.success) {
     return apiError(422, "INVALID_UPLOAD", parsed.error.issues[0]?.message ?? "Invalid upload.");
+  }
+
+  if (!(await verifyTurnstileToken(parsed.data.turnstileToken, clientIp))) {
+    return apiError(403, "TURNSTILE_FAILED", "Please complete the security check and try again.");
   }
 
   try {

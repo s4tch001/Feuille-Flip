@@ -1,5 +1,6 @@
 "use client";
 
+import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRightIcon, CloseIcon, CopyIcon, FileIcon, ShareIcon, UploadIcon } from "@/components/icons";
@@ -12,6 +13,12 @@ type UploadState = "idle" | "uploading" | "publishing" | "success";
 type ApiErrorBody = { error?: { message?: string } };
 type PresignResponse = { slug: string; storagePath: string; storageToken: string; ticket: string };
 type CompleteResponse = { slug: string; url: string };
+
+declare global {
+  interface Window {
+    turnstile?: { reset: () => void };
+  }
+}
 
 async function readError(response: Response): Promise<string> {
   const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
@@ -27,6 +34,7 @@ async function isPdfFile(file: File): Promise<boolean> {
 export function UploadDialog({ triggerClassName = "button button-primary" }: { triggerClassName?: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [state, setState] = useState<UploadState>("idle");
@@ -64,6 +72,8 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const turnstileToken = formData.get("cf-turnstile-response");
     setError("");
     if (!title.trim() || !slug) {
       setError("Add a title with at least one letter or number.");
@@ -84,6 +94,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
           fileName: file.name,
           fileSize: file.size,
           mimeType: file.type,
+          turnstileToken: typeof turnstileToken === "string" ? turnstileToken : undefined,
         }),
       });
       if (!presignResponse.ok) throw new Error(await readError(presignResponse));
@@ -111,6 +122,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     } catch (uploadError) {
       setState("idle");
       setError(uploadError instanceof Error ? uploadError.message : "Upload failed. Please try again.");
+      window.turnstile?.reset();
     }
   }
 
@@ -133,6 +145,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
 
   return (
     <>
+      {turnstileSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" />}
       <button className={triggerClassName} type="button" onClick={openDialog}>
         <UploadIcon /> Upload &amp; flip
       </button>
@@ -206,6 +219,12 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
                 <small>{file ? `${(file.size / 1024 / 1024).toFixed(1)} MB · Ready to flip` : "PDF only · Maximum 25 MB"}</small>
               </button>
               <p className="pdf-size-note">Best results: use A4 portrait for every page.</p>
+
+              {turnstileSiteKey && (
+                <div className="turnstile-field">
+                  <div className="cf-turnstile" data-sitekey={turnstileSiteKey} data-action="turnstile-spin-v1" />
+                </div>
+              )}
 
               {error && <p className="form-error" role="alert">{error}</p>}
 
