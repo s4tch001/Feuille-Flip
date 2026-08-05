@@ -1,6 +1,9 @@
+import Image from "next/image";
+
 import { Brand } from "@/components/brand";
 import { ArrowRightIcon, FileIcon, ShareIcon, SparkIcon, UploadIcon } from "@/components/icons";
 import { UploadDialog } from "@/components/upload-dialog";
+import heroImage from "@/public/images/hero.webp";
 
 export default function HomePage() {
   return (
@@ -24,28 +27,15 @@ export default function HomePage() {
           <p className="hero-note"><span>✓</span> No account needed <i /> <span>✓</span> Mobile ready</p>
         </div>
 
-        <div className="hero-art" aria-label="A preview of a page-turning digital magazine">
-          <div className="orbit orbit-one" />
-          <div className="orbit orbit-two" />
-          <span className="art-spark spark-one">✦</span>
-          <span className="art-spark spark-two">✦</span>
-          <div className="book-shadow" />
-          <div className="book-page page-back"><span>11</span></div>
-          <div className="book-page page-left">
-            <small>THE YEAR IN</small>
-            <strong>COLOR</strong>
-            <div className="page-photo photo-one" />
-            <div className="page-copy-lines"><i /><i /><i /></div>
-          </div>
-          <div className="book-page page-right">
-            <span className="page-number">08</span>
-            <div className="page-photo photo-two"><b>2026</b></div>
-            <h3>Moments worth<br />remembering.</h3>
-            <p>A small collection of the days that made this year unforgettable.</p>
-          </div>
-          <div className="turning-page"><span>FLIP</span></div>
-          <div className="art-badge"><span>↗</span><strong>Share anywhere</strong><small>One beautiful link</small></div>
-        </div>
+        <figure className="hero-art">
+          <Image
+            src={heroImage}
+            alt="A preview of a page-turning digital magazine"
+            priority
+            placeholder="blur"
+            sizes="(min-width: 760px) 48vw, 92vw"
+          />
+        </figure>
       </section>
 
       <section className="how-section" id="how-it-works">
