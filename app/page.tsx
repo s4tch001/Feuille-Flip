@@ -2,6 +2,7 @@ import Image from "next/image";
 
 import { Brand } from "@/components/brand";
 import { ArrowRightIcon, FileIcon, ShareIcon, SparkIcon, UploadIcon } from "@/components/icons";
+import { TurnstileGate } from "@/components/turnstile-gate";
 import { UploadDialog, UploadTrigger } from "@/components/upload-dialog";
 import heroImage from "@/public/images/hero.webp";
 
@@ -24,6 +25,7 @@ export default function HomePage() {
             <UploadTrigger />
             <a className="hero-link" href="#how-it-works">See how it works <ArrowRightIcon /></a>
           </div>
+          <TurnstileGate />
           <p className="hero-note"><span>✓</span> No account needed <i /> <span>✓</span> Mobile ready</p>
         </div>
 

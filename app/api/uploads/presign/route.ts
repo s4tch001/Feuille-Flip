@@ -8,7 +8,7 @@ import { getClientIp, hasTrustedOrigin, isRateLimited } from "@/lib/request-secu
 import { presignUploadSchema } from "@/lib/schemas";
 import { slugifyTitle } from "@/lib/slug";
 import { createSupabaseAdmin, getSupabaseSecret } from "@/lib/supabase/server";
-import { verifyTurnstileToken } from "@/lib/turnstile";
+import { verifyUploadSecurityTicket } from "@/lib/upload-security-ticket";
 import { createUploadTicket } from "@/lib/upload-ticket";
 
 export const runtime = "nodejs";
@@ -37,8 +37,15 @@ export async function POST(request: Request) {
     return apiError(422, "INVALID_UPLOAD", parsed.error.issues[0]?.message ?? "Invalid upload.");
   }
 
-  if (!(await verifyTurnstileToken(parsed.data.turnstileToken, clientIp))) {
-    return apiError(403, "TURNSTILE_FAILED", "Please complete the security check and try again.");
+  let secret: string;
+  try {
+    secret = getSupabaseSecret();
+  } catch {
+    return apiError(500, "UPLOAD_SETUP_FAILED", "Upload could not be started. Please try again.");
+  }
+
+  if (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && !verifyUploadSecurityTicket(parsed.data.securityTicket, secret)) {
+    return apiError(403, "SECURITY_CHECK_EXPIRED", "The security check expired. Please complete it again before uploading.");
   }
 
   try {
@@ -77,7 +84,7 @@ export async function POST(request: Request) {
         pages: pageUploads.map(({ index, storagePath, fileSize }) => ({ index, storagePath, fileSize })),
         fileSize: parsed.data.fileSize,
       },
-      getSupabaseSecret(),
+      secret,
     );
 
     return NextResponse.json(

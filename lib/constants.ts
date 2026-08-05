@@ -6,4 +6,5 @@ export const MAX_WEBP_PAGE_COUNT = 300;
 export const WEBP_PAGE_WIDTH = 1600;
 export const WEBP_QUALITY = 0.82;
 export const MAX_TITLE_LENGTH = 80;
-export const UPLOAD_TICKET_TTL_MS = 10 * 60 * 1000;
+export const UPLOAD_SECURITY_TICKET_TTL_MS = 60 * 60 * 1000;
+export const UPLOAD_TICKET_TTL_MS = 60 * 60 * 1000;
