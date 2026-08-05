@@ -20,6 +20,7 @@ type PresignResponse = {
 };
 type CompleteResponse = { slug: string; url: string };
 const OPEN_UPLOAD_DIALOG_EVENT = "feuille:open-upload-dialog";
+const TURNSTILE_READY_EVENT = "feuille:turnstile-ready";
 
 declare global {
   interface Window {
@@ -129,6 +130,7 @@ export function UploadDialog() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileGeneration, setTurnstileGeneration] = useState(0);
+  const [turnstileLoading, setTurnstileLoading] = useState(false);
   const slug = slugifyTitle(title);
 
   useEffect(() => {
@@ -141,15 +143,11 @@ export function UploadDialog() {
     if (!dialogOpen || !turnstileSiteKey) return;
     const siteKey = turnstileSiteKey;
     let cancelled = false;
-    let timeout: number | undefined;
-    const deadline = Date.now() + 5_000;
 
     function renderWidget() {
       if (cancelled || turnstileWidgetRef.current || !turnstileRef.current) return;
       const turnstile = window.turnstile;
       if (!turnstile) {
-        if (Date.now() < deadline) timeout = window.setTimeout(renderWidget, 50);
-        else setError("Security check could not load. Please refresh and try again.");
         return;
       }
 
@@ -171,13 +169,26 @@ export function UploadDialog() {
             setError("Security check expired. Please complete it again.");
           },
         });
+        setTurnstileLoading(false);
       });
     }
 
-    const frame = window.requestAnimationFrame(renderWidget);
+    function handleScriptReady() {
+      renderWidget();
+    }
+
+    window.addEventListener(TURNSTILE_READY_EVENT, handleScriptReady);
+    renderWidget();
+    const timeout = window.setTimeout(() => {
+      if (!cancelled && !turnstileWidgetRef.current) {
+        setTurnstileLoading(false);
+        setError("Security check could not load. Please refresh and try again.");
+      }
+    }, 8_000);
+
     return () => {
       cancelled = true;
-      window.cancelAnimationFrame(frame);
+      window.removeEventListener(TURNSTILE_READY_EVENT, handleScriptReady);
       if (timeout) window.clearTimeout(timeout);
     };
   }, [dialogOpen, turnstileGeneration, turnstileSiteKey]);
@@ -186,13 +197,14 @@ export function UploadDialog() {
     function openDialog() {
       if (dialogRef.current?.open) return;
       setError("");
+      setTurnstileLoading(Boolean(turnstileSiteKey));
       dialogRef.current?.showModal();
       setDialogOpen(true);
     }
 
     window.addEventListener(OPEN_UPLOAD_DIALOG_EVENT, openDialog);
     return () => window.removeEventListener(OPEN_UPLOAD_DIALOG_EVENT, openDialog);
-  }, []);
+  }, [turnstileSiteKey]);
 
   function resetTurnstile() {
     setTurnstileToken("");
@@ -204,6 +216,7 @@ export function UploadDialog() {
     turnstileWidgetRef.current = null;
     turnstileRef.current?.replaceChildren();
     setTurnstileToken("");
+    setTurnstileLoading(false);
   }
 
   function closeDialog() {
@@ -350,7 +363,7 @@ export function UploadDialog() {
               </div>
               <a className="button button-primary success-open" href={publishedPath}>Open flipbook <ArrowRightIcon /></a>
               <button className="text-button" type="button" onClick={() => {
-                setState("idle"); setTitle(""); setFile(null); setPublishedPath(""); setTurnstileGeneration((generation) => generation + 1);
+                setState("idle"); setTitle(""); setFile(null); setPublishedPath(""); setTurnstileLoading(Boolean(turnstileSiteKey)); setTurnstileGeneration((generation) => generation + 1);
               }}>Upload another PDF</button>
               <button className="button button-secondary mobile-share" type="button" onClick={nativeShare}><ShareIcon /> Share</button>
             </section>
@@ -398,6 +411,7 @@ export function UploadDialog() {
               {turnstileSiteKey && (
                 <div className="turnstile-field">
                   <div ref={turnstileRef} />
+                  {turnstileLoading && <p className="turnstile-loading">Loading security check...</p>}
                 </div>
               )}
 
