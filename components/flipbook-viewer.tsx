@@ -144,7 +144,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
       const page = await pdf.getPage(pageNumber);
       const targetWidth = canvas.parentElement?.clientWidth || 520;
       const baseViewport = page.getViewport({ scale: 1 });
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
       const viewport = page.getViewport({ scale: (targetWidth * pixelRatio) / baseViewport.width });
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);
@@ -269,6 +269,70 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
     return () => window.removeEventListener("keydown", handleKeys);
   }, []);
 
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || !bookSize?.singlePage) return;
+    let touchStart: { x: number; y: number } | null = null;
+    let pendingTurn: "previous" | "next" | null = null;
+
+    function isFlipbookTouch(event: TouchEvent) {
+      return event.target instanceof Element && event.target.closest(".flipbook");
+    }
+
+    function trackTouchStart(event: TouchEvent) {
+      if (!isFlipbookTouch(event) || event.changedTouches.length === 0) return;
+      const touch = event.changedTouches[0];
+      touchStart = { x: touch.clientX, y: touch.clientY };
+      pendingTurn = null;
+    }
+
+    function deferSwipeUntilRelease(event: TouchEvent) {
+      if (!touchStart || !isFlipbookTouch(event) || event.changedTouches.length === 0) return;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - touchStart.x;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(touch.clientY - touchStart.y);
+
+      if (absDx >= 30 && absDx > absDy * 1.2) {
+        pendingTurn = dx > 0 ? "previous" : "next";
+        if (event.cancelable) event.preventDefault();
+      }
+
+      event.stopPropagation();
+    }
+
+    function releaseDeferredSwipe(event: TouchEvent) {
+      if (!pendingTurn || !isFlipbookTouch(event)) {
+        touchStart = null;
+        pendingTurn = null;
+        return;
+      }
+
+      event.stopPropagation();
+      if (event.cancelable) event.preventDefault();
+      if (pendingTurn === "previous") flipbookRef.current?.pageFlip()?.flipPrev("bottom");
+      else flipbookRef.current?.pageFlip()?.flipNext("bottom");
+      touchStart = null;
+      pendingTurn = null;
+    }
+
+    function cancelDeferredSwipe() {
+      touchStart = null;
+      pendingTurn = null;
+    }
+
+    stage.addEventListener("touchstart", trackTouchStart, { capture: true });
+    stage.addEventListener("touchmove", deferSwipeUntilRelease, { capture: true });
+    stage.addEventListener("touchend", releaseDeferredSwipe, { capture: true });
+    stage.addEventListener("touchcancel", cancelDeferredSwipe, { capture: true });
+    return () => {
+      stage.removeEventListener("touchstart", trackTouchStart, { capture: true });
+      stage.removeEventListener("touchmove", deferSwipeUntilRelease, { capture: true });
+      stage.removeEventListener("touchend", releaseDeferredSwipe, { capture: true });
+      stage.removeEventListener("touchcancel", cancelDeferredSwipe, { capture: true });
+    };
+  }, [bookSize?.singlePage]);
+
   const handleFlip = useCallback((event: FlipEvent) => {
     const bookPage = Math.max(0, Math.min(bookPages.length - 1, Math.trunc(event.data)));
     const page = bookPages[bookPage]?.pdfPage ?? currentPageRef.current;
@@ -296,24 +360,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
     const pageFlip = flipbookRef.current?.pageFlip();
     if (!pageFlip) return;
 
-    if (event.data === "read") {
-      setBookPose(getBookPose(currentBookPageRef.current, pageFlip.getPageCount()));
-      return;
-    }
-
-    if (event.data === "user_fold") {
-      const current = currentBookPageRef.current;
-      if (current === 0 || current === pageFlip.getPageCount() - 1) setBookPose("open");
-      return;
-    }
-
-    if (event.data !== "flipping") return;
-    const direction = pageFlip.getFlipController().getCalculation()?.getDirection();
-    if (direction === undefined) return;
-    const pageCollection = pageFlip.getPageCollection();
-    const currentSpread = pageCollection.getCurrentSpreadIndex();
-    const targetSpread = pageCollection.getSpread()[currentSpread + (direction === 0 ? 1 : -1)];
-    if (targetSpread) setBookPose(getBookPose(targetSpread[0], pageFlip.getPageCount()));
+    if (event.data === "read") setBookPose(getBookPose(currentBookPageRef.current, pageFlip.getPageCount()));
   }, [setBookPose]);
 
   function turn(direction: "previous" | "next") {
@@ -341,8 +388,11 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
   return (
     <main className="reader-shell">
       <header className="reader-header">
-        <Brand compact />
-        <Link href="/" className="reader-title" title={title}>{title}</Link>
+        <div className="reader-heading">
+          <Brand compact />
+          <Link href="/" className="reader-title" title={title}>{title}</Link>
+        </div>
+        <p className="reader-page-count" aria-label={`Page ${Math.min(currentPage, pageCount || 1)} of ${pageCount || "unknown"}`}><strong>{Math.min(currentPage, pageCount || 1)}</strong><span> / {pageCount || "—"}</span></p>
         <div className="reader-actions">
           <a className="reader-action" href={pdfUrl} download aria-label="Download PDF"><DownloadIcon /><span>Download</span></a>
           <button className="reader-action" type="button" onClick={quickShare} aria-expanded={shareOpen}><ShareIcon /><span>Share</span></button>
@@ -403,11 +453,6 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
         <button className="page-arrow page-arrow-right" type="button" onClick={() => turn("next")} disabled={currentPage >= pageCount} aria-label="Next page"><ChevronRightIcon /></button>
       </section>
 
-      <footer className="reader-controls">
-        <button type="button" onClick={() => turn("previous")} disabled={currentPage <= 1}><ChevronLeftIcon /> <span>Previous</span></button>
-        <p><strong>{Math.min(currentPage, pageCount || 1)}</strong><span> / {pageCount || "—"}</span></p>
-        <button type="button" onClick={() => turn("next")} disabled={currentPage >= pageCount}><span>Next</span> <ChevronRightIcon /></button>
-      </footer>
     </main>
   );
 }
