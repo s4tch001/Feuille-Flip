@@ -9,7 +9,10 @@ import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIco
 
 type FlipbookViewerProps = {
   title: string;
-  pdfUrl: string;
+  pdfUrl?: string;
+  pageUrls?: string[];
+  pageWidth?: number;
+  pageHeight?: number;
   shareUrl: string;
 };
 
@@ -54,6 +57,7 @@ type EdgeFold = "front" | "back" | null;
 type BookPage = {
   key: string;
   pdfPage: number | null;
+  imageUrl?: string;
 };
 
 function getBookPose(page: number, totalPages: number): BookPose {
@@ -73,7 +77,7 @@ function calculateBookSize(container: HTMLElement, pageRatio: number): BookSize 
   return { width, height, singlePage };
 }
 
-export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps) {
+export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight, shareUrl }: FlipbookViewerProps) {
   const stageRef = useRef<HTMLElement>(null);
   const flipbookRef = useRef<FlipbookRef | null>(null);
   const pdfRef = useRef<PdfDocument | null>(null);
@@ -96,17 +100,19 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
   const [copied, setCopied] = useState(false);
 
   const bookPages = useMemo<BookPage[]>(() => {
-    const pages: BookPage[] = Array.from({ length: pageCount }, (_, index) => ({
-      key: `pdf-${index + 1}`,
-      pdfPage: index + 1,
-    }));
+    const pages: BookPage[] = pageUrls?.length
+      ? pageUrls.map((imageUrl, index) => ({ key: `webp-${index + 1}`, pdfPage: index + 1, imageUrl }))
+      : Array.from({ length: pageCount }, (_, index) => ({
+        key: `pdf-${index + 1}`,
+        pdfPage: index + 1,
+      }));
 
     if (pageCount > 1 && pageCount % 2 === 1) {
       pages.splice(pageCount - 1, 0, { key: "blank-endpaper", pdfPage: null });
     }
 
     return pages;
-  }, [pageCount]);
+  }, [pageCount, pageUrls]);
 
   const pageElements = useMemo(() => bookPages.map((bookPage) => (
     <div
@@ -116,13 +122,25 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
       aria-label={bookPage.pdfPage === null ? "Blank endpaper" : undefined}
     >
       {bookPage.pdfPage !== null && (
-        <canvas
-          ref={(canvas) => {
-            if (canvas) canvasRefs.current.set(bookPage.pdfPage!, canvas);
-          }}
-          data-page={bookPage.pdfPage}
-          aria-label={`Page ${bookPage.pdfPage}`}
-        />
+        bookPage.imageUrl ? (
+          // The pages are already pre-rendered and compressed WebP assets.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={bookPage.imageUrl}
+            alt={`Page ${bookPage.pdfPage}`}
+            data-page={bookPage.pdfPage}
+            data-rendered="true"
+            draggable={false}
+          />
+        ) : (
+          <canvas
+            ref={(canvas) => {
+              if (canvas) canvasRefs.current.set(bookPage.pdfPage!, canvas);
+            }}
+            data-page={bookPage.pdfPage}
+            aria-label={`Page ${bookPage.pdfPage}`}
+          />
+        )
       )}
     </div>
   )), [bookPages]);
@@ -180,6 +198,19 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
         setError("");
         setPageCount(0);
         setBookSize(null);
+        if (pageUrls?.length && pageWidth && pageHeight) {
+          currentPageRef.current = 1;
+          currentBookPageRef.current = 0;
+          setCurrentPage(1);
+          setCurrentBookPage(0);
+          setBookPose("front");
+          setEdgeFold(null);
+          setPageRatio(pageWidth / pageHeight);
+          setPageCount(pageUrls.length);
+          setStatus("");
+          return;
+        }
+        if (!pdfUrl) throw new Error("Missing PDF fallback.");
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL(
           "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -218,7 +249,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
       void loadingTask?.destroy();
       pdfRef.current = null;
     };
-  }, [pdfUrl]);
+  }, [pdfUrl, pageHeight, pageUrls, pageWidth]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -410,7 +441,7 @@ export function FlipbookViewer({ title, pdfUrl, shareUrl }: FlipbookViewerProps)
         </div>
         <p className="reader-page-count" aria-label={`Page ${Math.min(currentPage, pageCount || 1)} of ${pageCount || "unknown"}`}><strong>{Math.min(currentPage, pageCount || 1)}</strong><span> / {pageCount || "—"}</span></p>
         <div className="reader-actions">
-          <a className="reader-action" href={pdfUrl} download aria-label="Download PDF"><DownloadIcon /><span>Download</span></a>
+          {pdfUrl && <a className="reader-action" href={pdfUrl} download aria-label="Download PDF"><DownloadIcon /><span>Download</span></a>}
           <button className="reader-action" type="button" onClick={quickShare} aria-expanded={shareOpen}><ShareIcon /><span>Share</span></button>
           <button className="reader-action fullscreen-button" type="button" onClick={toggleFullscreen} aria-label="Toggle full screen"><MaximizeIcon /><span>Full screen</span></button>
         </div>

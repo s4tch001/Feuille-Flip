@@ -4,14 +4,21 @@ import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRightIcon, CloseIcon, CopyIcon, FileIcon, ShareIcon, UploadIcon } from "@/components/icons";
-import { MAX_PDF_BYTES } from "@/lib/constants";
+import { MAX_PDF_BYTES, MAX_WEBP_PAGE_BYTES, MAX_WEBP_PAGE_COUNT, MAX_WEBP_TOTAL_BYTES, WEBP_PAGE_WIDTH, WEBP_QUALITY } from "@/lib/constants";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { slugifyTitle } from "@/lib/slug";
 
-type UploadState = "idle" | "uploading" | "publishing" | "success";
+type UploadState = "idle" | "preparing" | "uploading" | "publishing" | "success";
 
 type ApiErrorBody = { error?: { message?: string } };
-type PresignResponse = { slug: string; storagePath: string; storageToken: string; ticket: string };
+type RenderedPage = { index: number; blob: Blob; fileSize: number };
+type RenderedPdf = { pageCount: number; pageWidth: number; pageHeight: number; pages: RenderedPage[] };
+type PresignResponse = {
+  slug: string;
+  pageStoragePrefix: string;
+  pageUploads: Array<{ index: number; storagePath: string; storageToken: string }>;
+  ticket: string;
+};
 type CompleteResponse = { slug: string; url: string };
 
 declare global {
@@ -29,6 +36,63 @@ async function isPdfFile(file: File): Promise<boolean> {
   if (file.type !== "application/pdf" || file.size > MAX_PDF_BYTES || file.size === 0) return false;
   const signature = new Uint8Array(await file.slice(0, 5).arrayBuffer());
   return String.fromCharCode(...signature) === "%PDF-";
+}
+
+function canvasToWebp(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) reject(new Error("This browser could not render the PDF pages."));
+      else resolve(blob);
+    }, "image/webp", WEBP_QUALITY);
+  });
+}
+
+async function renderPdfToWebp(file: File): Promise<RenderedPdf> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  const pdf = await loadingTask.promise;
+  try {
+    if (pdf.numPages > MAX_WEBP_PAGE_COUNT) throw new Error(`PDFs are limited to ${MAX_WEBP_PAGE_COUNT} pages.`);
+
+    const pages: RenderedPage[] = [];
+    let pageWidth = 0;
+    let pageHeight = 0;
+
+    for (let index = 1; index <= pdf.numPages; index += 1) {
+      const page = await pdf.getPage(index);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = WEBP_PAGE_WIDTH / baseViewport.width;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("This browser could not render the PDF pages.");
+      await page.render({ canvas, canvasContext: context, viewport }).promise;
+      const blob = await canvasToWebp(canvas);
+      if (blob.type !== "image/webp") throw new Error("This browser does not support WebP export. Try Chrome, Edge, or Safari 14+.");
+      if (blob.size > MAX_WEBP_PAGE_BYTES) throw new Error("One rendered page is too large. Try a simpler or smaller PDF.");
+      pages.push({ index, blob, fileSize: blob.size });
+      if (pages.reduce((total, item) => total + item.fileSize, 0) > MAX_WEBP_TOTAL_BYTES) {
+        throw new Error("Rendered pages are too large. Try a smaller PDF.");
+      }
+      if (index === 1) {
+        pageWidth = canvas.width;
+        pageHeight = canvas.height;
+      }
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+
+    return { pageCount: pdf.numPages, pageWidth, pageHeight, pages };
+  } finally {
+    await loadingTask.destroy();
+  }
 }
 
 export function UploadDialog({ triggerClassName = "button button-primary" }: { triggerClassName?: string }) {
@@ -55,7 +119,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
   }
 
   function closeDialog() {
-    if (state === "uploading" || state === "publishing") return;
+    if (state === "preparing" || state === "uploading" || state === "publishing") return;
     dialogRef.current?.close();
   }
 
@@ -85,6 +149,9 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     }
 
     try {
+      setState("preparing");
+      const rendered = await renderPdfToWebp(file);
+
       setState("uploading");
       const presignResponse = await fetch("/api/uploads/presign", {
         method: "POST",
@@ -95,18 +162,27 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
           fileSize: file.size,
           mimeType: file.type,
           turnstileToken: typeof turnstileToken === "string" ? turnstileToken : undefined,
+          pageCount: rendered.pageCount,
+          pageWidth: rendered.pageWidth,
+          pageHeight: rendered.pageHeight,
+          pages: rendered.pages.map((page) => ({ index: page.index, fileSize: page.fileSize })),
         }),
       });
       if (!presignResponse.ok) throw new Error(await readError(presignResponse));
       const upload = (await presignResponse.json()) as PresignResponse;
 
-      const { error: uploadError } = await getSupabaseBrowserClient().storage
-        .from("flipbooks")
-        .uploadToSignedUrl(upload.storagePath, upload.storageToken, file, {
-          contentType: "application/pdf",
-          upsert: false,
-        });
-      if (uploadError) throw new Error("The PDF upload was interrupted. Please try again.");
+      const uploadTargets = new Map(upload.pageUploads.map((page) => [page.index, page]));
+      for (const page of rendered.pages) {
+        const target = uploadTargets.get(page.index);
+        if (!target) throw new Error("Upload could not be prepared. Please try again.");
+        const { error: uploadError } = await getSupabaseBrowserClient().storage
+          .from("flipbooks")
+          .uploadToSignedUrl(target.storagePath, target.storageToken, page.blob, {
+            contentType: "image/webp",
+            upsert: false,
+          });
+        if (uploadError) throw new Error("The page upload was interrupted. Please try again.");
+      }
 
       setState("publishing");
       const completeResponse = await fetch("/api/uploads/complete", {
@@ -229,7 +305,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
               {error && <p className="form-error" role="alert">{error}</p>}
 
               <button className="button button-primary submit-upload" type="submit" disabled={state !== "idle"}>
-                {state === "uploading" ? "Uploading PDF…" : state === "publishing" ? "Publishing flipbook…" : <>Create flipbook <ArrowRightIcon /></>}
+                {state === "preparing" ? "Rendering pages…" : state === "uploading" ? "Uploading pages…" : state === "publishing" ? "Publishing flipbook…" : <>Create flipbook <ArrowRightIcon /></>}
               </button>
               <p className="privacy-note">Your flipbook will be public to anyone with the link.</p>
             </form>

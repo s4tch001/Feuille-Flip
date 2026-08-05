@@ -30,6 +30,5 @@ export default async function FlipbookPage({ params }: PageProps) {
   if (!flipbook) notFound();
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-  return <FlipbookViewer title={flipbook.title} pdfUrl={flipbook.pdfUrl} shareUrl={new URL(`/${flipbook.slug}`, baseUrl).toString()} />;
+  return <FlipbookViewer title={flipbook.title} pdfUrl={flipbook.pdfUrl} pageUrls={flipbook.pageUrls} pageWidth={flipbook.pageWidth} pageHeight={flipbook.pageHeight} shareUrl={new URL(`/${flipbook.slug}`, baseUrl).toString()} />;
 }
-

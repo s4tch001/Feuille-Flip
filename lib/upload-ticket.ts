@@ -7,7 +7,11 @@ import { UPLOAD_TICKET_TTL_MS } from "@/lib/constants";
 export type UploadTicketPayload = {
   title: string;
   slug: string;
-  storagePath: string;
+  pageStoragePrefix: string;
+  pageCount: number;
+  pageWidth: number;
+  pageHeight: number;
+  pages: Array<{ index: number; fileSize: number; storagePath: string }>;
   fileSize: number;
   expiresAt: number;
 };
@@ -48,7 +52,11 @@ export function verifyUploadTicket(ticket: string, secret: string): UploadTicket
     if (
       typeof payload.title !== "string" ||
       typeof payload.slug !== "string" ||
-      typeof payload.storagePath !== "string" ||
+      typeof payload.pageStoragePrefix !== "string" ||
+      typeof payload.pageCount !== "number" ||
+      typeof payload.pageWidth !== "number" ||
+      typeof payload.pageHeight !== "number" ||
+      !Array.isArray(payload.pages) ||
       typeof payload.fileSize !== "number" ||
       typeof payload.expiresAt !== "number" ||
       payload.expiresAt < Date.now()
@@ -60,4 +68,3 @@ export function verifyUploadTicket(ticket: string, secret: string): UploadTicket
     return null;
   }
 }
-

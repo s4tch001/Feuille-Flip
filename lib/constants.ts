@@ -1,5 +1,9 @@
 export const FLIPBOOK_BUCKET = "flipbooks";
 export const MAX_PDF_BYTES = 25 * 1024 * 1024;
+export const MAX_WEBP_PAGE_BYTES = 2 * 1024 * 1024;
+export const MAX_WEBP_TOTAL_BYTES = MAX_PDF_BYTES;
+export const MAX_WEBP_PAGE_COUNT = 300;
+export const WEBP_PAGE_WIDTH = 1600;
+export const WEBP_QUALITY = 0.82;
 export const MAX_TITLE_LENGTH = 80;
 export const UPLOAD_TICKET_TTL_MS = 10 * 60 * 1000;
-

@@ -8,6 +8,13 @@ const validUpload = {
   fileName: "highlights.pdf",
   fileSize: 1024,
   mimeType: "application/pdf" as const,
+  pageCount: 2,
+  pageWidth: 1600,
+  pageHeight: 2263,
+  pages: [
+    { index: 1, fileSize: 120_000 },
+    { index: 2, fileSize: 118_000 },
+  ],
 };
 
 describe("upload validation", () => {
@@ -26,4 +33,3 @@ describe("upload validation", () => {
     expect(titleSchema.safeParse("a".repeat(81)).success).toBe(false);
   });
 });
-
