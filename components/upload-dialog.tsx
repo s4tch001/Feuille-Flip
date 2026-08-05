@@ -24,7 +24,13 @@ type CompleteResponse = { slug: string; url: string };
 declare global {
   interface Window {
     turnstile?: {
-      render: (container: HTMLElement, params: { sitekey: string; action: string }) => string;
+      render: (container: HTMLElement, params: {
+        sitekey: string;
+        action: string;
+        callback: (token: string) => void;
+        "error-callback": (code: string) => void;
+        "expired-callback": () => void;
+      }) => string;
       reset: (widgetId?: string) => void;
     };
   }
@@ -112,6 +118,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
   const [copied, setCopied] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
   const slug = slugifyTitle(title);
 
   useEffect(() => {
@@ -125,8 +132,25 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     turnstileWidgetRef.current = window.turnstile.render(turnstileRef.current, {
       sitekey: turnstileSiteKey,
       action: "turnstile-spin-v1",
+      callback: (token) => {
+        setTurnstileToken(token);
+        setError("");
+      },
+      "error-callback": (code) => {
+        setTurnstileToken("");
+        setError(`Security check failed (${code}). Check your Turnstile site key and allowed domains.`);
+      },
+      "expired-callback": () => {
+        setTurnstileToken("");
+        setError("Security check expired. Please complete it again.");
+      },
     });
   }, [dialogOpen, scriptReady, turnstileSiteKey]);
+
+  function resetTurnstile() {
+    setTurnstileToken("");
+    window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
+  }
 
   function openDialog() {
     setError("");
@@ -154,7 +178,8 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const turnstileToken = formData.get("cf-turnstile-response");
+    const formToken = formData.get("cf-turnstile-response");
+    const securityToken = turnstileToken || (typeof formToken === "string" ? formToken : "");
     setError("");
     if (!title.trim() || !slug) {
       setError("Add a title with at least one letter or number.");
@@ -164,7 +189,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
       setError("Choose a valid PDF up to 25 MB.");
       return;
     }
-    if (turnstileSiteKey && typeof turnstileToken !== "string") {
+    if (turnstileSiteKey && !securityToken) {
       setError("Complete the security check before uploading.");
       return;
     }
@@ -182,7 +207,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
           fileName: file.name,
           fileSize: file.size,
           mimeType: file.type,
-          turnstileToken: typeof turnstileToken === "string" ? turnstileToken : undefined,
+          turnstileToken: securityToken || undefined,
           pageCount: rendered.pageCount,
           pageWidth: rendered.pageWidth,
           pageHeight: rendered.pageHeight,
@@ -219,7 +244,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     } catch (uploadError) {
       setState("idle");
       setError(uploadError instanceof Error ? uploadError.message : "Upload failed. Please try again.");
-      window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
+      resetTurnstile();
     }
   }
 
@@ -272,7 +297,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
               </div>
               <a className="button button-primary success-open" href={publishedPath}>Open flipbook <ArrowRightIcon /></a>
               <button className="text-button" type="button" onClick={() => {
-                window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
+                resetTurnstile();
                 setState("idle"); setTitle(""); setFile(null); setPublishedPath("");
               }}>Upload another PDF</button>
               <button className="button button-secondary mobile-share" type="button" onClick={nativeShare}><ShareIcon /> Share</button>
