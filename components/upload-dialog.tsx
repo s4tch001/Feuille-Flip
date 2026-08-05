@@ -272,7 +272,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
         <UploadIcon /> Upload &amp; flip
       </button>
 
-      <dialog className="upload-dialog" ref={dialogRef} onClick={(event) => {
+      <dialog className="upload-dialog" ref={dialogRef} onPointerDown={(event) => {
         if (event.target === dialogRef.current) closeDialog();
       }}>
         <div className="dialog-card">
