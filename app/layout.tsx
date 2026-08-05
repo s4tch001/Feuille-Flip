@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 
-import { TurnstileScript } from "@/components/turnstile-script";
 import "./globals.css";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
@@ -32,9 +31,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <body>
         {children}
-        {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && (
-          <TurnstileScript />
-        )}
       </body>
     </html>
   );

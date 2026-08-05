@@ -1,5 +1,6 @@
 "use client";
 
+import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRightIcon, CloseIcon, CopyIcon, FileIcon, ShareIcon, UploadIcon } from "@/components/icons";
@@ -20,7 +21,6 @@ type PresignResponse = {
 };
 type CompleteResponse = { slug: string; url: string };
 const OPEN_UPLOAD_DIALOG_EVENT = "feuille:open-upload-dialog";
-const TURNSTILE_READY_EVENT = "feuille:turnstile-ready";
 
 declare global {
   interface Window {
@@ -130,7 +130,7 @@ export function UploadDialog() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileGeneration, setTurnstileGeneration] = useState(0);
-  const [turnstileLoading, setTurnstileLoading] = useState(false);
+  const [turnstileScriptReady, setTurnstileScriptReady] = useState(false);
   const slug = slugifyTitle(title);
 
   useEffect(() => {
@@ -140,64 +140,39 @@ export function UploadDialog() {
   }, [copied]);
 
   useEffect(() => {
-    if (!dialogOpen || !turnstileSiteKey) return;
+    if (!dialogOpen || !turnstileSiteKey || !turnstileScriptReady || !window.turnstile || !turnstileRef.current || turnstileWidgetRef.current) return;
     const siteKey = turnstileSiteKey;
     let cancelled = false;
 
-    function renderWidget() {
+    window.turnstile.ready(() => {
       if (cancelled || turnstileWidgetRef.current || !turnstileRef.current) return;
-      const turnstile = window.turnstile;
-      if (!turnstile) {
-        return;
-      }
-
-      turnstile.ready(() => {
-        if (cancelled || turnstileWidgetRef.current || !turnstileRef.current) return;
-        turnstileWidgetRef.current = turnstile.render(turnstileRef.current, {
-          sitekey: siteKey,
-          action: "turnstile-spin-v1",
-          callback: (token) => {
-            setTurnstileToken(token);
-            setError("");
-          },
-          "error-callback": (code) => {
-            setTurnstileToken("");
-            setError(`Security check failed (${code}). Check your Turnstile site key and allowed domains.`);
-          },
-          "expired-callback": () => {
-            setTurnstileToken("");
-            setError("Security check expired. Please complete it again.");
-          },
-        });
-        setTurnstileLoading(false);
+      turnstileWidgetRef.current = window.turnstile!.render(turnstileRef.current, {
+        sitekey: siteKey,
+        action: "turnstile-spin-v1",
+        callback: (token) => {
+          setTurnstileToken(token);
+          setError("");
+        },
+        "error-callback": (code) => {
+          setTurnstileToken("");
+          setError(`Security check failed (${code}). Check your Turnstile site key and allowed domains.`);
+        },
+        "expired-callback": () => {
+          setTurnstileToken("");
+          setError("Security check expired. Please complete it again.");
+        },
       });
-    }
-
-    function handleScriptReady() {
-      renderWidget();
-    }
-
-    window.addEventListener(TURNSTILE_READY_EVENT, handleScriptReady);
-    renderWidget();
-    const timeout = window.setTimeout(() => {
-      if (!cancelled && !turnstileWidgetRef.current) {
-        setTurnstileLoading(false);
-        setError("Security check could not load. Please refresh and try again.");
-      }
-    }, 8_000);
+    });
 
     return () => {
       cancelled = true;
-      window.removeEventListener(TURNSTILE_READY_EVENT, handleScriptReady);
-      if (timeout) window.clearTimeout(timeout);
     };
-  }, [dialogOpen, turnstileGeneration, turnstileSiteKey]);
+  }, [dialogOpen, turnstileGeneration, turnstileScriptReady, turnstileSiteKey]);
 
   useEffect(() => {
     function openDialog() {
       if (dialogRef.current?.open) return;
       setError("");
-      setTurnstileLoading(Boolean(turnstileSiteKey));
       dialogRef.current?.showModal();
       setDialogOpen(true);
     }
@@ -216,7 +191,6 @@ export function UploadDialog() {
     turnstileWidgetRef.current = null;
     turnstileRef.current?.replaceChildren();
     setTurnstileToken("");
-    setTurnstileLoading(false);
   }
 
   function closeDialog() {
@@ -338,6 +312,13 @@ export function UploadDialog() {
 
   return (
     <>
+      {turnstileSiteKey && (
+        <Script
+          src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+          strategy="afterInteractive"
+          onReady={() => setTurnstileScriptReady(true)}
+        />
+      )}
       <dialog className="upload-dialog" ref={dialogRef} onClose={handleDialogClose} onPointerDown={(event) => {
         if (event.target === dialogRef.current) closeDialog();
       }}>
@@ -363,7 +344,7 @@ export function UploadDialog() {
               </div>
               <a className="button button-primary success-open" href={publishedPath}>Open flipbook <ArrowRightIcon /></a>
               <button className="text-button" type="button" onClick={() => {
-                setState("idle"); setTitle(""); setFile(null); setPublishedPath(""); setTurnstileLoading(Boolean(turnstileSiteKey)); setTurnstileGeneration((generation) => generation + 1);
+                setState("idle"); setTitle(""); setFile(null); setPublishedPath(""); setTurnstileGeneration((generation) => generation + 1);
               }}>Upload another PDF</button>
               <button className="button button-secondary mobile-share" type="button" onClick={nativeShare}><ShareIcon /> Share</button>
             </section>
@@ -411,7 +392,6 @@ export function UploadDialog() {
               {turnstileSiteKey && (
                 <div className="turnstile-field">
                   <div ref={turnstileRef} />
-                  {turnstileLoading && <p className="turnstile-loading">Loading security check...</p>}
                 </div>
               )}
 
