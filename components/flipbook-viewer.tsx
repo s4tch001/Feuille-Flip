@@ -44,10 +44,6 @@ type FlipEvent = {
   data: number;
 };
 
-type FlipStateEvent = {
-  data: "user_fold" | "fold_corner" | "flipping" | "read";
-};
-
 type BookSize = {
   width: number;
   height: number;
@@ -55,7 +51,6 @@ type BookSize = {
 };
 
 type BookPose = "front" | "open" | "back";
-type EdgeFold = "front" | "back" | null;
 
 type BookPage = {
   key: string;
@@ -95,7 +90,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   const [currentPage, setCurrentPage] = useState(1);
   const [currentBookPage, setCurrentBookPage] = useState(0);
   const [bookPose, setBookPose] = useState<BookPose>("front");
-  const [edgeFold, setEdgeFold] = useState<EdgeFold>(null);
   const [pageCount, setPageCount] = useState(0);
   const [status, setStatus] = useState("Opening your flipbook…");
   const [error, setError] = useState("");
@@ -125,27 +119,30 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
       key={bookPage.key}
       aria-label={bookPage.pdfPage === null ? "Blank endpaper" : undefined}
     >
-      {bookPage.pdfPage !== null && (
-        bookPage.imageUrl ? (
-          // The pages are already pre-rendered and compressed WebP assets.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={bookPage.imageUrl}
-            alt={`Page ${bookPage.pdfPage}`}
-            data-page={bookPage.pdfPage}
-            data-rendered="true"
-            draggable={false}
-          />
-        ) : (
-          <canvas
-            ref={(canvas) => {
-              if (canvas) canvasRefs.current.set(bookPage.pdfPage!, canvas);
-            }}
-            data-page={bookPage.pdfPage}
-            aria-label={`Page ${bookPage.pdfPage}`}
-          />
-        )
-      )}
+      <div className="pdf-page-front">
+        {bookPage.pdfPage !== null && (
+          bookPage.imageUrl ? (
+            // The pages are already pre-rendered and compressed WebP assets.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={bookPage.imageUrl}
+              alt={`Page ${bookPage.pdfPage}`}
+              data-page={bookPage.pdfPage}
+              data-rendered="true"
+              draggable={false}
+            />
+          ) : (
+            <canvas
+              ref={(canvas) => {
+                if (canvas) canvasRefs.current.set(bookPage.pdfPage!, canvas);
+              }}
+              data-page={bookPage.pdfPage}
+              aria-label={`Page ${bookPage.pdfPage}`}
+            />
+          )
+        )}
+      </div>
+      <div className="pdf-page-back" aria-hidden="true" />
     </div>
   )), [bookPages]);
 
@@ -208,7 +205,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
           setCurrentPage(1);
           setCurrentBookPage(0);
           setBookPose("front");
-          setEdgeFold(null);
           setPageRatio(pageWidth / pageHeight);
           setPageCount(pageUrls.length);
           setStatus("");
@@ -234,7 +230,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         setCurrentPage(1);
         setCurrentBookPage(0);
         setBookPose("front");
-        setEdgeFold(null);
         setPageRatio(firstViewport.width / firstViewport.height);
         setPageCount(pdf.numPages);
         setStatus("Preparing pages…");
@@ -417,33 +412,12 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     const pageFlip = flipbookRef.current?.pageFlip();
     if (!pageFlip) return;
     const totalPages = pageFlip.getPageCount();
-    if (totalPages > 0) {
-      pageFlip.getPage(0).setDensity("soft");
-      pageFlip.getPage(totalPages - 1).setDensity("soft");
+    if (bookSize?.singlePage && totalPages > 0) {
+      for (let page = 0; page < totalPages; page += 1) pageFlip.getPage(page).setDensity("hard");
       pageFlip.update();
     }
     setBookPose(getBookPose(currentBookPageRef.current, totalPages));
-  }, [setBookPose]);
-
-  const handleFlipState = useCallback((event: FlipStateEvent) => {
-    const pageFlip = flipbookRef.current?.pageFlip();
-    if (!pageFlip) return;
-
-    const totalPages = pageFlip.getPageCount();
-
-    if (event.data === "read") {
-      setEdgeFold(null);
-      setBookPose(getBookPose(currentBookPageRef.current, totalPages));
-      return;
-    }
-
-    if (event.data === "user_fold" || event.data === "fold_corner" || event.data === "flipping") {
-      const current = currentBookPageRef.current;
-      if (current <= 1) setEdgeFold("front");
-      else if (current >= totalPages - 2) setEdgeFold("back");
-      else setEdgeFold(null);
-    }
-  }, [setBookPose, setEdgeFold]);
+  }, [bookSize?.singlePage, setBookPose]);
 
   function turn(direction: "previous" | "next") {
     const pageFlip = flipbookRef.current?.pageFlip();
@@ -495,7 +469,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
         {pageCount > 0 && bookSize && (
-          <div className={`book-stage book-stage--${bookPose}${edgeFold ? ` book-stage--edge-fold book-stage--edge-${edgeFold}` : ""}${mobilePress ? ` book-stage--press-${mobilePress}` : ""}`}>
+          <div className={`book-stage book-stage--${bookPose}${mobilePress ? ` book-stage--press-${mobilePress}` : ""}`}>
             <span className="book-gutter" aria-hidden="true" />
             <HTMLFlipBook
               key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
@@ -526,7 +500,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
               renderOnlyPageLengthChange={true}
               onFlip={handleFlip}
               onInit={handleInit}
-              onChangeState={handleFlipState}
             >
               {pageElements}
             </HTMLFlipBook>
