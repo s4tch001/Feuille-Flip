@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRightIcon, CloseIcon, CopyIcon, FileIcon, ShareIcon, UploadIcon } from "@/components/icons";
+import { TURNSTILE_ERROR_EVENT, TURNSTILE_READY_EVENT } from "@/components/turnstile-script";
 import { MAX_PDF_BYTES, MAX_WEBP_PAGE_BYTES, MAX_WEBP_PAGE_COUNT, MAX_WEBP_TOTAL_BYTES, WEBP_PAGE_WIDTH, WEBP_QUALITY } from "@/lib/constants";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { slugifyTitle } from "@/lib/slug";
@@ -40,10 +41,10 @@ declare global {
         "error-callback": (code: string) => void;
         "expired-callback": () => void;
       }) => string;
-      ready: (callback: () => void) => void;
       reset: (widgetId?: string) => void;
       remove: (widgetId: string) => void;
     };
+    feuilleTurnstileReady?: boolean;
   }
 }
 
@@ -148,26 +149,30 @@ export function UploadDialog() {
 
   useEffect(() => {
     if (!turnstileSiteKey) return;
-    if (window.turnstile) {
+    if (window.feuilleTurnstileReady) {
       window.setTimeout(() => setTurnstileScriptReady(true), 0);
       return;
     }
 
     let cancelled = false;
-    const interval = window.setInterval(() => {
-      if (window.turnstile) {
-        window.clearInterval(interval);
-        if (!cancelled) setTurnstileScriptReady(true);
-      }
-    }, 100);
+    function handleReady() {
+      if (!cancelled) setTurnstileScriptReady(true);
+    }
+
+    function handleError() {
+      if (!cancelled) setError("Security check script did not load. Check ad blockers, browser privacy tools, or network access to challenges.cloudflare.com.");
+    }
+
+    window.addEventListener(TURNSTILE_READY_EVENT, handleReady);
+    window.addEventListener(TURNSTILE_ERROR_EVENT, handleError);
     const timeout = window.setTimeout(() => {
-      window.clearInterval(interval);
       if (!cancelled) setError("Security check script did not load. Check ad blockers, browser privacy tools, or network access to challenges.cloudflare.com.");
     }, TURNSTILE_LOAD_TIMEOUT_MS);
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      window.removeEventListener(TURNSTILE_READY_EVENT, handleReady);
+      window.removeEventListener(TURNSTILE_ERROR_EVENT, handleError);
       window.clearTimeout(timeout);
     };
   }, [turnstileSiteKey]);
@@ -178,34 +183,29 @@ export function UploadDialog() {
     let cancelled = false;
 
     try {
-      window.turnstile.ready(() => {
-        if (cancelled || turnstileWidgetRef.current || !turnstileRef.current) return;
-        try {
-          turnstileWidgetRef.current = window.turnstile!.render(turnstileRef.current, {
-            sitekey: siteKey,
-            action: "turnstile-spin-v1",
-            callback: (token) => {
-              setTurnstileToken(token);
-              setError("");
-            },
-            "error-callback": (code) => {
-              setTurnstileToken("");
-              setError(getTurnstileErrorMessage(code));
-            },
-            "expired-callback": () => {
-              setTurnstileToken("");
-              setError("Security check expired. Please complete it again.");
-            },
-          });
-        } catch {
+      turnstileWidgetRef.current = window.turnstile.render(turnstileRef.current, {
+        sitekey: siteKey,
+        action: "turnstile-spin-v1",
+        callback: (token) => {
+          if (cancelled) return;
+          setTurnstileToken(token);
+          setError("");
+        },
+        "error-callback": (code) => {
+          if (cancelled) return;
           setTurnstileToken("");
-          setError("Security check widget could not render. Please refresh and try again.");
-        }
+          setError(getTurnstileErrorMessage(code));
+        },
+        "expired-callback": () => {
+          if (cancelled) return;
+          setTurnstileToken("");
+          setError("Security check expired. Please complete it again.");
+        },
       });
     } catch {
       window.setTimeout(() => {
         setTurnstileToken("");
-        setError("Security check widget could not start. Please refresh and try again.");
+        setError("Security check widget could not render. Please refresh and try again.");
       }, 0);
     }
 
@@ -218,7 +218,7 @@ export function UploadDialog() {
     function openDialog() {
       setError("");
       setDialogOpen(true);
-      if (window.turnstile) setTurnstileScriptReady(true);
+      if (window.feuilleTurnstileReady) setTurnstileScriptReady(true);
     }
 
     window.addEventListener(OPEN_UPLOAD_DIALOG_EVENT, openDialog);
