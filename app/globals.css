@@ -81,8 +81,8 @@ svg { width: 1.2em; height: 1.2em; }
 .hero-note span { color: #28724d; font-weight: bold; }
 .hero-note i { width: 3px; height: 3px; border-radius: 50%; background: #b8b9bc; }
 
-.hero-art { width: min(100%, 560px); margin: 0 auto; }
-.hero-art img { display: block; width: 100%; height: auto; filter: drop-shadow(0 24px 55px rgba(31,35,51,.16)); }
+.hero-art { width: min(100%, 560px); margin: 0 auto; overflow:hidden; }
+.hero-art img { display: block; width: 100%; height: auto; }
 
 .how-section { padding: 85px 0; background: white; border-top: 1px solid #ecebe6; scroll-margin-top: calc(90px + env(safe-area-inset-top, 0px)); }
 .eyebrow { color: var(--purple); text-transform: uppercase; letter-spacing: 1.8px; font-weight: 850; font-size: 11px; margin: 0 0 12px; }

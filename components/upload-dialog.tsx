@@ -23,7 +23,10 @@ type CompleteResponse = { slug: string; url: string };
 
 declare global {
   interface Window {
-    turnstile?: { reset: () => void };
+    turnstile?: {
+      render: (container: HTMLElement, params: { sitekey: string; action: string }) => string;
+      reset: (widgetId?: string) => void;
+    };
   }
 }
 
@@ -98,6 +101,8 @@ async function renderPdfToWebp(file: File): Promise<RenderedPdf> {
 export function UploadDialog({ triggerClassName = "button button-primary" }: { triggerClassName?: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const turnstileRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetRef = useRef<string | null>(null);
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -105,6 +110,8 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
   const [error, setError] = useState("");
   const [publishedPath, setPublishedPath] = useState("");
   const [copied, setCopied] = useState(false);
+  const [scriptReady, setScriptReady] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const slug = slugifyTitle(title);
 
   useEffect(() => {
@@ -113,13 +120,23 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     return () => window.clearTimeout(timeout);
   }, [copied]);
 
+  useEffect(() => {
+    if (!dialogOpen || !turnstileSiteKey || !scriptReady || !window.turnstile || !turnstileRef.current || turnstileWidgetRef.current) return;
+    turnstileWidgetRef.current = window.turnstile.render(turnstileRef.current, {
+      sitekey: turnstileSiteKey,
+      action: "turnstile-spin-v1",
+    });
+  }, [dialogOpen, scriptReady, turnstileSiteKey]);
+
   function openDialog() {
     setError("");
     dialogRef.current?.showModal();
+    setDialogOpen(true);
   }
 
   function closeDialog() {
     if (state === "preparing" || state === "uploading" || state === "publishing") return;
+    setDialogOpen(false);
     dialogRef.current?.close();
   }
 
@@ -145,6 +162,10 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     }
     if (!file || !(await isPdfFile(file))) {
       setError("Choose a valid PDF up to 25 MB.");
+      return;
+    }
+    if (turnstileSiteKey && typeof turnstileToken !== "string") {
+      setError("Complete the security check before uploading.");
       return;
     }
 
@@ -198,7 +219,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
     } catch (uploadError) {
       setState("idle");
       setError(uploadError instanceof Error ? uploadError.message : "Upload failed. Please try again.");
-      window.turnstile?.reset();
+      window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
     }
   }
 
@@ -221,7 +242,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
 
   return (
     <>
-      {turnstileSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" />}
+      {turnstileSiteKey && <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" strategy="afterInteractive" onReady={() => setScriptReady(true)} />}
       <button className={triggerClassName} type="button" onClick={openDialog}>
         <UploadIcon /> Upload &amp; flip
       </button>
@@ -251,6 +272,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
               </div>
               <a className="button button-primary success-open" href={publishedPath}>Open flipbook <ArrowRightIcon /></a>
               <button className="text-button" type="button" onClick={() => {
+                window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
                 setState("idle"); setTitle(""); setFile(null); setPublishedPath("");
               }}>Upload another PDF</button>
               <button className="button button-secondary mobile-share" type="button" onClick={nativeShare}><ShareIcon /> Share</button>
@@ -298,7 +320,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
 
               {turnstileSiteKey && (
                 <div className="turnstile-field">
-                  <div className="cf-turnstile" data-sitekey={turnstileSiteKey} data-action="turnstile-spin-v1" />
+                  <div ref={turnstileRef} />
                 </div>
               )}
 
