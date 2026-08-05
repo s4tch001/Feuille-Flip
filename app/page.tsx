@@ -32,7 +32,6 @@ export default function HomePage() {
             src={heroImage}
             alt="A preview of a page-turning digital magazine"
             priority
-            placeholder="blur"
             sizes="(min-width: 760px) 48vw, 92vw"
           />
         </figure>
