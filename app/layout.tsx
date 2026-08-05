@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 
 import "./globals.css";
 
@@ -32,6 +33,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         {children}
       </body>
+      {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && (
+        <Script
+          id="cf-turnstile-script"
+          src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+          strategy="afterInteractive"
+        />
+      )}
     </html>
   );
 }

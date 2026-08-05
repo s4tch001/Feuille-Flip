@@ -20,7 +20,15 @@ type PresignResponse = {
 };
 type CompleteResponse = { slug: string; url: string };
 const OPEN_UPLOAD_DIALOG_EVENT = "feuille:open-upload-dialog";
-const TURNSTILE_SCRIPT_ID = "cf-turnstile-script";
+const TURNSTILE_LOAD_TIMEOUT_MS = 12_000;
+
+function getTurnstileErrorMessage(code: string) {
+  if (code === "110100" || code === "110110" || code === "400020") return `Security check failed (${code}): invalid Turnstile site key.`;
+  if (code === "110200") return `Security check failed (${code}): this domain is not allowed in the Turnstile widget.`;
+  if (code === "400070") return `Security check failed (${code}): this Turnstile site key is disabled.`;
+  if (code === "200500") return `Security check failed (${code}): Turnstile iframe could not load. Check browser blockers or network restrictions.`;
+  return `Security check failed (${code}). Please try again.`;
+}
 
 declare global {
   interface Window {
@@ -146,35 +154,21 @@ export function UploadDialog() {
     }
 
     let cancelled = false;
-    const existingScript = document.getElementById(TURNSTILE_SCRIPT_ID) as HTMLScriptElement | null;
-    const script = existingScript ?? document.createElement("script");
-
-    function markReady() {
-      script.dataset.loaded = "true";
-      if (!cancelled) setTurnstileScriptReady(true);
-    }
-
-    function markFailed() {
-      if (!cancelled) setError("Security check could not load. Please refresh and try again.");
-    }
-
-    script.addEventListener("load", markReady);
-    script.addEventListener("error", markFailed);
-
-    if (script.dataset.loaded === "true") {
-      markReady();
-    } else if (!existingScript) {
-      script.id = TURNSTILE_SCRIPT_ID;
-      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
-    }
+    const interval = window.setInterval(() => {
+      if (window.turnstile) {
+        window.clearInterval(interval);
+        if (!cancelled) setTurnstileScriptReady(true);
+      }
+    }, 100);
+    const timeout = window.setTimeout(() => {
+      window.clearInterval(interval);
+      if (!cancelled) setError("Security check script did not load. Check ad blockers, browser privacy tools, or network access to challenges.cloudflare.com.");
+    }, TURNSTILE_LOAD_TIMEOUT_MS);
 
     return () => {
       cancelled = true;
-      script.removeEventListener("load", markReady);
-      script.removeEventListener("error", markFailed);
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
     };
   }, [turnstileSiteKey]);
 
@@ -196,7 +190,7 @@ export function UploadDialog() {
             },
             "error-callback": (code) => {
               setTurnstileToken("");
-              setError(`Security check failed (${code}). Check your Turnstile site key and allowed domains.`);
+              setError(getTurnstileErrorMessage(code));
             },
             "expired-callback": () => {
               setTurnstileToken("");
@@ -205,13 +199,13 @@ export function UploadDialog() {
           });
         } catch {
           setTurnstileToken("");
-          setError("Security check could not load. Please refresh and try again.");
+          setError("Security check widget could not render. Please refresh and try again.");
         }
       });
     } catch {
       window.setTimeout(() => {
         setTurnstileToken("");
-        setError("Security check could not load. Please refresh and try again.");
+        setError("Security check widget could not start. Please refresh and try again.");
       }, 0);
     }
 
