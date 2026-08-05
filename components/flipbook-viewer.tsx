@@ -21,6 +21,9 @@ type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument
 type PageFlipApi = {
   flipNext: (corner?: "top" | "bottom") => void;
   flipPrev: (corner?: "top" | "bottom") => void;
+  startUserTouch: (position: { x: number; y: number }) => void;
+  userMove: (position: { x: number; y: number }, isTouch: boolean) => void;
+  userStop: (position: { x: number; y: number }, isSwipe?: boolean) => void;
   getFlipController: () => {
     getCalculation: () => { getDirection: () => number } | null;
   };
@@ -307,7 +310,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || !bookSize?.singlePage) return;
-    let press: { direction: "previous" | "next"; corner: "top" | "bottom"; startedAt: number } | null = null;
+    let press: { direction: "previous" | "next"; rect: DOMRect; origin: { x: number; y: number }; active: boolean; timer: number } | null = null;
 
     function isFlipbookTouch(event: TouchEvent) {
       return event.target instanceof Element && event.target.closest(".flipbook");
@@ -328,10 +331,20 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
           : null;
       if (!direction) return;
 
+      const origin = {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top,
+      };
       press = {
         direction,
-        corner: touch.clientY - rect.top < rect.height / 2 ? "top" : "bottom",
-        startedAt: Date.now(),
+        rect,
+        origin,
+        active: false,
+        timer: window.setTimeout(() => {
+          if (!press) return;
+          press.active = true;
+          flipbookRef.current?.pageFlip()?.startUserTouch(press.origin);
+        }, 140),
       };
       setMobilePress(direction);
       if (event.cancelable) event.preventDefault();
@@ -339,7 +352,14 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     }
 
     function holdEdgePress(event: TouchEvent) {
-      if (!press) return;
+      if (!press || event.changedTouches.length === 0) return;
+      const touch = event.changedTouches[0];
+      if (press.active) {
+        flipbookRef.current?.pageFlip()?.userMove({
+          x: touch.clientX - press.rect.left,
+          y: touch.clientY - press.rect.top,
+        }, true);
+      }
       if (event.cancelable) event.preventDefault();
       event.stopPropagation();
     }
@@ -348,17 +368,24 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
       const activePress = press;
       press = null;
       setMobilePress(null);
-      if (!activePress) return;
+      if (!activePress || event.changedTouches.length === 0) return;
+      window.clearTimeout(activePress.timer);
+      const touch = event.changedTouches[0];
       event.stopPropagation();
       if (event.cancelable) event.preventDefault();
-
-      // A deliberate edge press turns only when released, matching a page-corner gesture.
-      if (Date.now() - activePress.startedAt < 120) return;
-      if (activePress.direction === "previous") flipbookRef.current?.pageFlip()?.flipPrev(activePress.corner);
-      else flipbookRef.current?.pageFlip()?.flipNext(activePress.corner);
+      if (activePress.active) {
+        flipbookRef.current?.pageFlip()?.userStop({
+          x: touch.clientX - activePress.rect.left,
+          y: touch.clientY - activePress.rect.top,
+        });
+      }
     }
 
     function cancelEdgePress() {
+      if (press) {
+        window.clearTimeout(press.timer);
+        if (press.active) flipbookRef.current?.pageFlip()?.userStop({ x: press.rect.width / 2, y: press.rect.height / 2 });
+      }
       press = null;
       setMobilePress(null);
     }
