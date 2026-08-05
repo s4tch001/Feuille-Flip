@@ -227,7 +227,7 @@ export function UploadDialog({ triggerClassName = "button button-primary" }: { t
             contentType: "image/webp",
             upsert: false,
           });
-        if (uploadError) throw new Error("The page upload was interrupted. Please try again.");
+        if (uploadError) throw new Error(`Page ${page.index} could not upload: ${uploadError.message}`);
       }
 
       setState("publishing");
