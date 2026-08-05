@@ -5,7 +5,7 @@ import HTMLFlipBook from "react-pageflip-enhanced";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Brand } from "@/components/brand";
-import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIcon } from "@/components/icons";
+import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIcon, ZoomInIcon, ZoomOutIcon } from "@/components/icons";
 
 type FlipbookViewerProps = {
   title: string;
@@ -66,12 +66,12 @@ function getBookPose(page: number, totalPages: number): BookPose {
   return "open";
 }
 
-function calculateBookSize(container: HTMLElement, pageRatio: number): BookSize {
+function calculateBookSize(container: HTMLElement, pageRatio: number, zoom: number): BookSize {
   const singlePage = window.matchMedia("(max-width: 767px)").matches;
-  const availableWidth = Math.max(240, container.clientWidth - (singlePage ? 20 : 80));
-  const availableHeight = Math.max(300, container.clientHeight - (singlePage ? 18 : 36));
+  const availableWidth = Math.max(240, container.clientWidth - (singlePage ? 12 : 44));
+  const availableHeight = Math.max(300, container.clientHeight - (singlePage ? 12 : 20));
   const visiblePages = singlePage ? 1 : 2;
-  const width = Math.floor(Math.min(availableWidth / visiblePages, availableHeight * pageRatio));
+  const width = Math.floor(Math.min(availableWidth / visiblePages, availableHeight * pageRatio) * zoom);
   const height = Math.floor(width / pageRatio);
 
   return { width, height, singlePage };
@@ -98,6 +98,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   const [error, setError] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
   const bookPages = useMemo<BookPage[]>(() => {
     const pages: BookPage[] = pageUrls?.length
@@ -108,7 +109,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
       }));
 
     if (pageCount > 1 && pageCount % 2 === 1) {
-      pages.splice(pageCount - 1, 0, { key: "blank-endpaper", pdfPage: null });
+      pages.push({ key: "blank-endpaper", pdfPage: null });
     }
 
     return pages;
@@ -259,7 +260,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     function resizeBook() {
       const stageElement = stageRef.current;
       if (!stageElement) return;
-      const nextSize = calculateBookSize(stageElement, ratio);
+      const nextSize = calculateBookSize(stageElement, ratio, zoom);
       setBookSize((currentSize) => (
         currentSize &&
         currentSize.width === nextSize.width &&
@@ -274,7 +275,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     const resizeObserver = new ResizeObserver(resizeBook);
     resizeObserver.observe(stage);
     return () => resizeObserver.disconnect();
-  }, [pageRatio]);
+  }, [pageRatio, zoom]);
 
   useEffect(() => {
     if (!bookSize || !pageCount) return;
@@ -442,6 +443,8 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         <p className="reader-page-count" aria-label={`Page ${Math.min(currentPage, pageCount || 1)} of ${pageCount || "unknown"}`}><strong>{Math.min(currentPage, pageCount || 1)}</strong><span> / {pageCount || "—"}</span></p>
         <div className="reader-actions">
           {pdfUrl && <a className="reader-action" href={pdfUrl} download aria-label="Download PDF"><DownloadIcon /><span>Download</span></a>}
+          <button className="reader-action" type="button" onClick={() => setZoom((currentZoom) => Math.max(0.85, Number((currentZoom - 0.15).toFixed(2))))} disabled={zoom <= 0.85} aria-label="Zoom out"><ZoomOutIcon /><span>Zoom out</span></button>
+          <button className="reader-action" type="button" onClick={() => setZoom((currentZoom) => Math.min(1.3, Number((currentZoom + 0.15).toFixed(2))))} disabled={zoom >= 1.3} aria-label="Zoom in"><ZoomInIcon /><span>Zoom in</span></button>
           <button className="reader-action" type="button" onClick={quickShare} aria-expanded={shareOpen}><ShareIcon /><span>Share</span></button>
           <button className="reader-action fullscreen-button" type="button" onClick={toggleFullscreen} aria-label="Toggle full screen"><MaximizeIcon /><span>Full screen</span></button>
         </div>

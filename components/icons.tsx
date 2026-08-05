@@ -51,6 +51,14 @@ export function MaximizeIcon(props: IconProps) {
   return <IconBase {...props}><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></IconBase>;
 }
 
+export function ZoomInIcon(props: IconProps) {
+  return <IconBase {...props}><circle cx="11" cy="11" r="6"/><path d="M16 16l5 5M11 8v6M8 11h6"/></IconBase>;
+}
+
+export function ZoomOutIcon(props: IconProps) {
+  return <IconBase {...props}><circle cx="11" cy="11" r="6"/><path d="M16 16l5 5M8 11h6"/></IconBase>;
+}
+
 export function DownloadIcon(props: IconProps) {
   return <IconBase {...props}><path d="M12 3v12m0 0l5-5m-5 5l-5-5M5 21h14"/></IconBase>;
 }
@@ -62,4 +70,3 @@ export function CloseIcon(props: IconProps) {
 export function CopyIcon(props: IconProps) {
   return <IconBase {...props}><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 00-2-2H5a2 2 0 00-2 2v9a2 2 0 002 2h3"/></IconBase>;
 }
-

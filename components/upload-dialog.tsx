@@ -1,5 +1,7 @@
 "use client";
 
+import { faBluesky, faFacebookF, faLinkedinIn, faPinterestP, faRedditAlien, faTelegramPlane, faTumblr, faWhatsapp, faXTwitter } from "@fortawesome/free-brands-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRightIcon, CloseIcon, CopyIcon, FileIcon, ShareIcon, UploadIcon } from "@/components/icons";
@@ -276,9 +278,15 @@ export function UploadDialog() {
                 <button type="button" onClick={copyLink}><CopyIcon /> {copied ? "Copied" : "Copy"}</button>
               </div>
               <div className="share-row" aria-label="Share flipbook">
-                <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(absoluteUrl)}`} target="_blank" rel="noreferrer">Facebook</a>
-                <a href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(absoluteUrl)}&text=${encodeURIComponent(title)}`} target="_blank" rel="noreferrer">X / Twitter</a>
-                <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(absoluteUrl)}`} target="_blank" rel="noreferrer">LinkedIn</a>
+                <a className="share-facebook" href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(absoluteUrl)}`} target="_blank" rel="noreferrer" aria-label="Share on Facebook" title="Facebook"><FontAwesomeIcon icon={faFacebookF} /></a>
+                <a className="share-x" href={`https://x.com/intent/post?url=${encodeURIComponent(absoluteUrl)}&text=${encodeURIComponent(title)}`} target="_blank" rel="noreferrer" aria-label="Share on X" title="X"><FontAwesomeIcon icon={faXTwitter} /></a>
+                <a className="share-linkedin" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(absoluteUrl)}`} target="_blank" rel="noreferrer" aria-label="Share on LinkedIn" title="LinkedIn"><FontAwesomeIcon icon={faLinkedinIn} /></a>
+                <a className="share-whatsapp" href={`https://wa.me/?text=${encodeURIComponent(`${title} ${absoluteUrl}`)}`} target="_blank" rel="noreferrer" aria-label="Share on WhatsApp" title="WhatsApp"><FontAwesomeIcon icon={faWhatsapp} /></a>
+                <a className="share-telegram" href={`https://t.me/share/url?url=${encodeURIComponent(absoluteUrl)}&text=${encodeURIComponent(title)}`} target="_blank" rel="noreferrer" aria-label="Share on Telegram" title="Telegram"><FontAwesomeIcon icon={faTelegramPlane} /></a>
+                <a className="share-reddit" href={`https://www.reddit.com/submit?url=${encodeURIComponent(absoluteUrl)}&title=${encodeURIComponent(title)}`} target="_blank" rel="noreferrer" aria-label="Share on Reddit" title="Reddit"><FontAwesomeIcon icon={faRedditAlien} /></a>
+                <a className="share-pinterest" href={`https://pinterest.com/pin/create/button/?url=${encodeURIComponent(absoluteUrl)}&description=${encodeURIComponent(title)}`} target="_blank" rel="noreferrer" aria-label="Share on Pinterest" title="Pinterest"><FontAwesomeIcon icon={faPinterestP} /></a>
+                <a className="share-bluesky" href={`https://bsky.app/intent/compose?text=${encodeURIComponent(`${title} ${absoluteUrl}`)}`} target="_blank" rel="noreferrer" aria-label="Share on Bluesky" title="Bluesky"><FontAwesomeIcon icon={faBluesky} /></a>
+                <a className="share-tumblr" href={`https://www.tumblr.com/widgets/share/tool?canonicalUrl=${encodeURIComponent(absoluteUrl)}&title=${encodeURIComponent(title)}`} target="_blank" rel="noreferrer" aria-label="Share on Tumblr" title="Tumblr"><FontAwesomeIcon icon={faTumblr} /></a>
               </div>
               <a className="button button-primary success-open" href={publishedPath}>Open flipbook <ArrowRightIcon /></a>
               <button className="text-button" type="button" onClick={() => {
