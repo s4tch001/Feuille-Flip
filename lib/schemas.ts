@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { MAX_PDF_BYTES, MAX_TITLE_LENGTH, MAX_WEBP_PAGE_BYTES, MAX_WEBP_PAGE_COUNT, MAX_WEBP_TOTAL_BYTES } from "@/lib/constants";
+import { MAX_PDF_BYTES, MAX_TITLE_LENGTH, MAX_UPLOAD_TICKET_LENGTH, MAX_WEBP_PAGE_BYTES, MAX_WEBP_PAGE_COUNT, MAX_WEBP_TOTAL_BYTES } from "@/lib/constants";
 import { slugifyTitle } from "@/lib/slug";
 
 export const titleSchema = z
@@ -49,7 +49,7 @@ export const presignUploadSchema = z.object({
 });
 
 export const completeUploadSchema = z.object({
-  ticket: z.string().min(32).max(2048),
+  ticket: z.string().min(32).max(MAX_UPLOAD_TICKET_LENGTH),
 });
 
 export type PresignUploadInput = z.infer<typeof presignUploadSchema>;
