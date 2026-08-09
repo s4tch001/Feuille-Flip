@@ -19,12 +19,22 @@ export const authorizeUploadSchema = z.object({
   turnstileToken: z.string().trim().min(1).max(4096).optional(),
 });
 
-export const presignUploadSchema = z.object({
+const commonPresignFields = {
   title: titleSchema,
   fileName: z.string().trim().min(1).max(255),
   fileSize: z.number().int().positive().max(MAX_PDF_BYTES),
   mimeType: z.literal("application/pdf"),
   securityTicket: z.string().min(32).max(2048).optional(),
+};
+
+const pdfPresignUploadSchema = z.object({
+  ...commonPresignFields,
+  source: z.literal("pdf"),
+});
+
+const pagePresignUploadSchema = z.object({
+  ...commonPresignFields,
+  source: z.literal("pages"),
   pageCount: z.number().int().min(1).max(MAX_WEBP_PAGE_COUNT),
   pageWidth: z.number().int().positive().max(10_000),
   pageHeight: z.number().int().positive().max(10_000),
@@ -47,6 +57,11 @@ export const presignUploadSchema = z.object({
     }
   }
 });
+
+export const presignUploadSchema = z.discriminatedUnion("source", [
+  pdfPresignUploadSchema,
+  pagePresignUploadSchema,
+]);
 
 export const completeUploadSchema = z.object({
   ticket: z.string().min(32).max(MAX_UPLOAD_TICKET_LENGTH),

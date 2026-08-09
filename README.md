@@ -1,48 +1,120 @@
 # Feuille Flip
 
-Feuille Flip turns a PDF into a polished, shareable flipbook without requiring an account or an
-editor.
+Feuille Flip is a local-first page designer and PDF-to-flipbook publisher. A visitor can design a
+flipbook from scratch or upload an existing PDF, then publish one public link without creating an
+account.
 
 **Live app:** [feuille-flip.netlify.app](https://feuille-flip.netlify.app/)
 
-## Features
+## Two creation paths
 
-- Uploads valid PDFs up to 25 MB.
-- Converts PDF pages to WebP in the browser before upload.
-- Supports up to 300 rendered pages, with a 1,600 px target page width.
-- Publishes a unique, URL-safe slug from the title.
-- Uses a two-page spread on wide screens and a single-page reader on mobile and tablet.
-- Provides page-turn animation, cover handling, soft mobile folds, paper shadows, download, full-screen mode, and responsive controls.
-- Protects uploads with Cloudflare Turnstile on the landing page.
-- Provides share links for Facebook, X, LinkedIn, WhatsApp, Telegram, Reddit, Pinterest, Bluesky, and Tumblr.
-- Keeps older PDF-backed flipbooks readable while new flipbooks use WebP page assets.
+### Create & Flip editor
+
+`/create` provides a responsive, Canva-style canvas workspace:
+
+- A4, US Letter, 16:9 presentation, square, story, and custom page sizes.
+- The selected width-to-height ratio is retained by the editor, HD export, publisher, and viewer.
+- Multiple pages with add, duplicate, delete, thumbnails, and a 100-page project limit.
+- Reusable modern cover, editorial, portfolio, and minimal layouts.
+- Text boxes with bundled Montserrat, Playfair Display, Bebas Neue, and Caveat fonts plus common
+  system fonts.
+- Font size, color, bold, italic, underline, alignment, shadow, outline, and opacity controls.
+- Rectangles, circles, freehand drawing, object alignment, flipping, layer ordering, grouping, and
+  multi-selection.
+- Center/edge snapping, rulers, arrow-key nudging, and common undo, redo, duplicate, group, and
+  delete keyboard shortcuts.
+- Local JPG, PNG, and WebP photos up to 10 MB and 8,000 pixels per dimension.
+- Photo filters, circle/rounded masks, square crop, flipping, and local light-background cleanup.
+- HD PNG export and public WebP publishing at a 2,560-pixel long edge.
+- A responsive mobile style sheet for editing controls on smaller screens.
+
+### Upload & Flip
+
+- Accepts valid PDFs up to 25 MB and 300 pages.
+- Uploads the original PDF rather than a low-resolution page conversion.
+- Uses PDF.js to render visible pages at an adaptive 2x–3x pixel density.
+- Derives the viewer ratio from the first PDF page, so portrait, landscape, square, and custom PDF
+  sizes remain proportional.
+- Keeps older WebP-backed records readable for backward compatibility.
+
+## Local drafts and privacy
+
+Editor drafts do **not** pass through Supabase.
+
+- Project data and embedded local images are autosaved in IndexedDB on the current browser/device.
+- Only the last project identifier and a small recent-project index use `localStorage`.
+- The editor requests persistent browser storage when the browser supports it.
+- A complete project can be downloaded as a `.feuilleflip` JSON file and imported on another
+  desktop or mobile device.
+- Supabase is contacted only after the user explicitly confirms **Publish**.
+- Clearing browser site data removes IndexedDB drafts, so important work should also be saved as a
+  `.feuilleflip` file.
+
+## Publishing and sharing
+
+Publishing an editor project renders its pages locally to HD WebP files, obtains short-lived signed
+upload URLs, uploads the page assets directly to Supabase Storage, validates them on the server, and
+creates a public `/<slug>` link. The success screen supports copy link, native device sharing,
+Facebook, X, LinkedIn, and WhatsApp. The public viewer also provides its wider social sharing menu.
+
+PDF publishing follows the same security flow but uploads the original PDF. The server verifies the
+stored size, MIME metadata, signed ticket, and `%PDF-` signature before creating the public record.
 
 ## Technology
 
-- **Next.js 16** with the App Router and TypeScript
-- **React 19** for the interface and upload flow
-- **react-pageflip-enhanced** for the MIT-licensed page-flip engine
-- **PDF.js** (`pdfjs-dist`) for browser-side PDF validation and rendering
-- **Supabase** for PostgreSQL metadata, Storage, signed upload URLs, and public page assets
-- **Cloudflare Turnstile** for upload authorization and server-side token verification
-- **Font Awesome Free Brands** for social sharing icons
-- **Zod** for server-side request validation
-- **Netlify** for hosting and the scheduled Supabase keep-awake function
-- **CSS** for the responsive landing page, reader, modal, and mobile behavior
+- **Next.js 16** App Router and TypeScript
+- **React 19**
+- **Fabric.js 7** for the page editor
+- **IndexedDB** through `idb` for local draft persistence
+- **PDF.js** (`pdfjs-dist`) for PDF validation and adaptive viewer rendering
+- **react-pageflip-enhanced** for page-turn interaction
+- **Supabase** PostgreSQL and Storage for explicitly published flipbooks
+- **Cloudflare Turnstile** and signed, expiring upload tickets
+- **Zod** for API and local project validation
+- **Fontsource** for locally bundled editor fonts
+- **Vitest** and ESLint
+- **Netlify** hosting and scheduled Supabase keep-awake function
 
-## Upload flow
+## Data flow
 
-1. The landing page loads one Turnstile widget. The upload dialog does not create or reload its own widget.
-2. The browser validates the selected file as a PDF and checks the file signature.
-3. The browser exchanges the Turnstile token at `/api/uploads/authorize` for a short-lived signed security ticket.
-4. PDF.js renders each PDF page to WebP in the browser.
-5. `/api/uploads/presign` validates the upload metadata and security ticket, then creates Supabase signed upload URLs for the WebP pages.
-6. The browser uploads the WebP pages directly to the `flipbooks` Supabase Storage bucket.
-7. `/api/uploads/complete` verifies the signed upload ticket and uploaded page metadata, then inserts the flipbook record.
-8. The reader prefers WebP pages and falls back to the original PDF for older records.
+### Editor draft
 
-The Turnstile token is consumed before the expensive PDF rendering and Storage upload work begins,
-so the challenge is not part of the long-running upload operation.
+1. The user chooses a page size or custom ratio.
+2. Fabric.js serializes every page as canvas JSON.
+3. The project autosaves to IndexedDB after local changes.
+4. The user can download or re-import a `.feuilleflip` file without an account or server upload.
+
+### Editor publish
+
+1. The browser renders every page at a 2,560-pixel long edge and keeps its selected ratio.
+2. A Turnstile token is exchanged for a short-lived security ticket when Turnstile is configured.
+3. `/api/uploads/presign` validates metadata and returns signed WebP upload URLs.
+4. The browser uploads each page directly to the `flipbooks` bucket.
+5. `/api/uploads/complete` verifies page count, sequence, size, MIME metadata, and the signed ticket.
+6. The server inserts the public record and returns its shareable link.
+
+### PDF publish
+
+1. The browser checks the file type, size, `%PDF-` signature, page count, and whether PDF.js can open
+   the first page.
+2. The security and presign APIs return a signed URL for `uploads/<uuid>.pdf`.
+3. The original PDF uploads directly to Supabase Storage.
+4. The completion API verifies Storage metadata and reads the stored signature before publishing.
+5. The viewer renders visible PDF pages on demand at the appropriate desktop/mobile density.
+
+## Limits
+
+| Item | Limit |
+| --- | ---: |
+| PDF file | 25 MB |
+| PDF pages | 300 |
+| Editor pages | 100 |
+| Editor photo | 10 MB |
+| Editor photo dimension | 8,000 px |
+| Imported project file | 50 MB |
+| Published WebP page | 2 MB |
+| Published WebP total | 25 MB |
+| Editor publish resolution | 2,560 px long edge |
 
 ## Local development
 
@@ -50,7 +122,7 @@ so the challenge is not part of the long-running upload operation.
 
 - Node.js 24
 - A Supabase project
-- A Cloudflare Turnstile widget configured for `localhost`, `127.0.0.1`, and the production hostname
+- A Cloudflare Turnstile widget configured for `localhost`, `127.0.0.1`, and every production host
 
 ### Setup
 
@@ -69,15 +141,16 @@ NEXT_PUBLIC_TURNSTILE_SITE_KEY=your-turnstile-site-key
 TURNSTILE_SECRET_KEY=your-turnstile-secret-key
 ```
 
-`SUPABASE_SECRET_KEY` and `TURNSTILE_SECRET_KEY` are server-only secrets. Never commit `.env.local`
-or expose either value to the browser.
+`SUPABASE_SECRET_KEY` and `TURNSTILE_SECRET_KEY` are server-only. Never commit `.env.local` or expose
+either value to browser code.
 
-Run both database migrations in order in the Supabase SQL Editor:
+Run the database migrations in order in the Supabase SQL Editor:
 
 1. [`supabase/migrations/20260804000000_create_flipbooks.sql`](supabase/migrations/20260804000000_create_flipbooks.sql)
 2. [`supabase/migrations/20260805000000_add_webp_flipbook_pages.sql`](supabase/migrations/20260805000000_add_webp_flipbook_pages.sql)
 
-The second migration updates the `flipbooks` bucket to allow both `application/pdf` and `image/webp`.
+The second migration allows both `application/pdf` and `image/webp` objects and adds the page-asset
+metadata used by editor-created flipbooks.
 
 Start the development server:
 
@@ -86,18 +159,6 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
-
-## Netlify deployment
-
-1. Import the repository into Netlify.
-2. Use `npm run build` as the build command.
-3. Keep the detected Next.js settings unchanged.
-4. Add all six environment variables listed above in Netlify project settings.
-5. Set `NEXT_PUBLIC_SITE_URL` to `https://feuille-flip.netlify.app` or the final custom domain.
-6. Deploy the site.
-
-The scheduled `netlify/functions/keep-supabase-awake.mts` function runs three times daily and performs
-a small Supabase health query. It is an operational workaround for inactivity-related pauses, not a
 
 ## Useful commands
 
@@ -111,23 +172,39 @@ npm run start     # Serve the production build locally
 
 ## Project routes
 
-- `/` - landing page and upload entry point
-- `/[slug]` - public flipbook reader
-- `/api/uploads/authorize` - verifies Turnstile and issues an upload security ticket
-- `/api/uploads/presign` - validates metadata and creates signed WebP upload URLs
-- `/api/uploads/complete` - validates uploaded pages and publishes the flipbook
-- `/robots.txt` - generated crawler rules
-- `/sitemap.xml` - generated public sitemap
+- `/` — landing page and PDF upload entry point
+- `/create` — local-first page editor
+- `/[slug]` — public flipbook viewer
+- `/api/uploads/authorize` — Turnstile verification and security-ticket creation
+- `/api/uploads/presign` — signed PDF or WebP upload URL creation
+- `/api/uploads/complete` — stored asset validation and public record creation
+- `/robots.txt` — generated crawler rules
+- `/sitemap.xml` — generated public sitemap
+
+## Deployment
+
+1. Import the repository into Netlify.
+2. Use `npm run build` as the build command.
+3. Keep the detected Next.js settings.
+4. Add all six environment variables listed above.
+5. Set `NEXT_PUBLIC_SITE_URL` to the final HTTPS origin.
+6. Add every deployed hostname to the Turnstile widget.
+7. Run both Supabase migrations before accepting uploads.
+
+The scheduled `netlify/functions/keep-supabase-awake.mts` function runs three times daily and makes a
+small health query. It is only an operational workaround for inactivity-related pauses.
 
 ## Important notes
 
-- The app intentionally has no accounts. Anyone with a published link can open that flipbook.
-- Published flipbook assets are public by design. Do not upload confidential or sensitive documents.
-- PDF uploads are limited to 25 MB; each WebP page is limited to 2 MB and the rendered page total is limited to 25 MB.
-- New uploads are image-based WebP flipbooks. Existing PDF-backed records remain supported as a fallback.
-- Turnstile must include every deployed hostname in its widget configuration, including the Netlify hostname and any custom domain.
-- Abandoned uploads can leave unreferenced Storage objects; an orphan cleanup job can be added as usage grows.
+- The app has no accounts. Anyone with a published link can open that public flipbook.
+- Never publish confidential or sensitive documents; published assets are public by design.
+- Existing low-resolution WebP pages cannot regain missing detail. Republish the original PDF to use
+  adaptive high-density rendering.
+- Mixed-size PDFs use the first page as the flipbook frame ratio because the page-turn engine requires
+  one consistent page size.
+- Abandoned or interrupted publishing attempts may leave unreferenced Storage objects; add a scheduled
+  orphan cleanup task as usage grows.
 
 ## Third-party notices
 
-See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the `react-pageflip-enhanced` license notice.
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for licensing information.

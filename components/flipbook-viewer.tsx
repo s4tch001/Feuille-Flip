@@ -165,7 +165,8 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
       const page = await pdf.getPage(pageNumber);
       const targetWidth = canvas.parentElement?.clientWidth || 520;
       const baseViewport = page.getViewport({ scale: 1 });
-      const pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
+      const minimumDesktopScale = targetWidth >= 700 ? 2.25 : 2;
+      const pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, minimumDesktopScale), 3);
       const viewport = page.getViewport({ scale: (targetWidth * pixelRatio) / baseViewport.width });
       canvas.width = Math.floor(viewport.width);
       canvas.height = Math.floor(viewport.height);

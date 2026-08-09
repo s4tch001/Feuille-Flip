@@ -4,6 +4,7 @@ import { MAX_PDF_BYTES } from "@/lib/constants";
 import { presignUploadSchema, titleSchema } from "@/lib/schemas";
 
 const validUpload = {
+  source: "pages" as const,
   title: "My 2026 Highlights",
   fileName: "highlights.pdf",
   fileSize: 1024,
@@ -18,8 +19,18 @@ const validUpload = {
 };
 
 describe("upload validation", () => {
-  it("accepts a valid PDF upload request", () => {
+  it("accepts a valid rendered-page upload request", () => {
     expect(presignUploadSchema.safeParse(validUpload).success).toBe(true);
+  });
+
+  it("accepts an original PDF upload without rendered page assets", () => {
+    expect(presignUploadSchema.safeParse({
+      source: "pdf",
+      title: "Sharp desktop text",
+      fileName: "sharp.pdf",
+      fileSize: 2048,
+      mimeType: "application/pdf",
+    }).success).toBe(true);
   });
 
   it("rejects non-PDF types and oversized files", () => {

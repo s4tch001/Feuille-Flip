@@ -7,6 +7,7 @@ describe("upload tickets", () => {
   it("accepts a ticket payload for the maximum PDF page count", () => {
     const pageStoragePrefix = "pages/123e4567-e89b-12d3-a456-426614174000";
     const payload = {
+      kind: "pages",
       title: "Large PDF",
       slug: "large-pdf",
       pageStoragePrefix,

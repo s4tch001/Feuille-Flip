@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { apiError } from "@/lib/api-response";
-import { FLIPBOOK_BUCKET, MAX_WEBP_PAGE_BYTES } from "@/lib/constants";
+import { FLIPBOOK_BUCKET, MAX_PDF_BYTES, MAX_WEBP_PAGE_BYTES } from "@/lib/constants";
 import { getClientIp, hasTrustedOrigin, isRateLimited } from "@/lib/request-security";
 import { completeUploadSchema } from "@/lib/schemas";
 import { createSupabaseAdmin, getSupabaseSecret } from "@/lib/supabase/server";
@@ -15,6 +15,33 @@ async function removeInvalidUpload(storagePaths: string[]) {
   } catch {
     // A failed cleanup is intentionally hidden from the external response.
   }
+}
+
+async function hasPdfSignature(storagePath: string): Promise<boolean> {
+  const supabase = createSupabaseAdmin();
+  const publicUrl = supabase.storage.from(FLIPBOOK_BUCKET).getPublicUrl(storagePath).data.publicUrl;
+  const response = await fetch(publicUrl, {
+    cache: "no-store",
+    headers: { Range: "bytes=0-4" },
+  });
+  if (!response.ok || !response.body) return false;
+
+  const reader = response.body.getReader();
+  const signature = new Uint8Array(5);
+  let offset = 0;
+  try {
+    while (offset < signature.length) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      const amount = Math.min(value.length, signature.length - offset);
+      signature.set(value.subarray(0, amount), offset);
+      offset += amount;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  return offset === signature.length && new TextDecoder().decode(signature) === "%PDF-";
 }
 
 export async function POST(request: Request) {
@@ -43,8 +70,56 @@ export async function POST(request: Request) {
     secret = undefined;
   }
   const payload = parsed.success && secret ? verifyUploadTicket(parsed.data.ticket, secret) : null;
+  if (!payload) {
+    return apiError(400, "INVALID_TICKET", "The upload expired or is invalid. Please start again.");
+  }
+
+  const supabase = createSupabaseAdmin();
+
+  if (payload.kind === "pdf") {
+    if (!/^uploads\/[0-9a-f-]{36}\.pdf$/.test(payload.storagePath)) {
+      return apiError(400, "INVALID_TICKET", "The upload expired or is invalid. Please start again.");
+    }
+
+    const fileName = payload.storagePath.split("/").at(-1)!;
+    const { data: objects, error: listError } = await supabase.storage
+      .from(FLIPBOOK_BUCKET)
+      .list("uploads", { limit: 2, search: fileName });
+    const uploadedPdf = objects?.find((item) => item.name === fileName);
+    const actualSize = Number(uploadedPdf?.metadata?.size ?? 0);
+    const mimeType = String(uploadedPdf?.metadata?.mimetype ?? "");
+    const metadataIsValid = !listError && uploadedPdf && actualSize === payload.fileSize && actualSize > 0 && actualSize <= MAX_PDF_BYTES && (!mimeType || mimeType === "application/pdf");
+    const signatureIsValid = metadataIsValid
+      ? await hasPdfSignature(payload.storagePath).catch(() => false)
+      : false;
+
+    if (!metadataIsValid || !signatureIsValid) {
+      await removeInvalidUpload([payload.storagePath]);
+      return apiError(422, "INVALID_PDF", "The PDF did not pass validation.");
+    }
+
+    const { error: insertError } = await supabase.from("flipbooks").insert({
+      title: payload.title,
+      slug: payload.slug,
+      storage_path: payload.storagePath,
+      file_size: actualSize,
+    });
+
+    if (insertError) {
+      await removeInvalidUpload([payload.storagePath]);
+      if (insertError.code === "23505") {
+        return apiError(409, "SLUG_TAKEN", "That title was just used. Try a more specific title.");
+      }
+      return apiError(500, "SAVE_FAILED", "The flipbook could not be published. Please try again.");
+    }
+
+    return NextResponse.json(
+      { slug: payload.slug, url: `/${payload.slug}` },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   if (
-    !payload ||
     !/^pages\/[0-9a-f-]{36}$/.test(payload.pageStoragePrefix) ||
     payload.pages.length !== payload.pageCount ||
     payload.pages.some((page) => !/^pages\/[0-9a-f-]{36}\/\d{4}\.webp$/.test(page.storagePath))
@@ -52,7 +127,6 @@ export async function POST(request: Request) {
     return apiError(400, "INVALID_TICKET", "The upload expired or is invalid. Please start again.");
   }
 
-  const supabase = createSupabaseAdmin();
   const pageFileNames = new Map(payload.pages.map((page) => [page.storagePath.split("/").at(-1)!, page]));
   const { data: objects, error: listError } = await supabase.storage
     .from(FLIPBOOK_BUCKET)

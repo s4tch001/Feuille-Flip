@@ -1,5 +1,10 @@
 import type { Metadata, Viewport } from "next";
 
+import "@fontsource/bebas-neue/400.css";
+import "@fontsource/caveat/400.css";
+import "@fontsource/montserrat/400.css";
+import "@fontsource/playfair-display/400.css";
+
 import { TurnstileScript } from "@/components/turnstile-script";
 import "./globals.css";
 

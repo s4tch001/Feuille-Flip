@@ -62,6 +62,36 @@ export async function POST(request: Request) {
       return apiError(409, "SLUG_TAKEN", "That title is already in use. Try a more specific title.");
     }
 
+    if (parsed.data.source === "pdf") {
+      const storagePath = `uploads/${randomUUID()}.pdf`;
+      const { data: signedUpload, error: uploadError } = await supabase.storage
+        .from(FLIPBOOK_BUCKET)
+        .createSignedUploadUrl(storagePath, { upsert: false });
+
+      if (uploadError || !signedUpload) throw uploadError ?? new Error("No upload token returned.");
+
+      const ticket = createUploadTicket(
+        {
+          kind: "pdf",
+          title: parsed.data.title,
+          slug,
+          storagePath,
+          fileSize: parsed.data.fileSize,
+        },
+        secret,
+      );
+
+      return NextResponse.json(
+        {
+          slug,
+          storagePath,
+          storageToken: signedUpload.token,
+          ticket,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const pageStoragePrefix = `pages/${randomUUID()}`;
     const pageUploads = await Promise.all(parsed.data.pages.map(async (page) => {
       const storagePath = `${pageStoragePrefix}/${String(page.index).padStart(4, "0")}.webp`;
@@ -75,6 +105,7 @@ export async function POST(request: Request) {
 
     const ticket = createUploadTicket(
       {
+        kind: "pages",
         title: parsed.data.title,
         slug,
         pageStoragePrefix,

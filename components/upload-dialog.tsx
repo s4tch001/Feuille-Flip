@@ -5,19 +5,17 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { useEffect, useRef, useState } from "react";
 
 import { ArrowRightIcon, CloseIcon, CopyIcon, FileIcon, ShareIcon, UploadIcon } from "@/components/icons";
-import { MAX_PDF_BYTES, MAX_WEBP_PAGE_BYTES, MAX_WEBP_PAGE_COUNT, MAX_WEBP_TOTAL_BYTES, WEBP_PAGE_WIDTH, WEBP_QUALITY } from "@/lib/constants";
+import { MAX_PDF_BYTES, MAX_WEBP_PAGE_COUNT } from "@/lib/constants";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { slugifyTitle } from "@/lib/slug";
 
 type UploadState = "idle" | "preparing" | "uploading" | "publishing" | "success";
 
 type ApiErrorBody = { error?: { message?: string } };
-type RenderedPage = { index: number; blob: Blob; fileSize: number };
-type RenderedPdf = { pageCount: number; pageWidth: number; pageHeight: number; pages: RenderedPage[] };
 type PresignResponse = {
   slug: string;
-  pageStoragePrefix: string;
-  pageUploads: Array<{ index: number; storagePath: string; storageToken: string }>;
+  storagePath: string;
+  storageToken: string;
   ticket: string;
 };
 type CompleteResponse = { slug: string; url: string };
@@ -42,16 +40,7 @@ async function isPdfFile(file: File): Promise<boolean> {
   return String.fromCharCode(...signature) === "%PDF-";
 }
 
-function canvasToWebp(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) reject(new Error("This browser could not render the PDF pages."));
-      else resolve(blob);
-    }, "image/webp", WEBP_QUALITY);
-  });
-}
-
-async function renderPdfToWebp(file: File): Promise<RenderedPdf> {
+async function inspectPdf(file: File): Promise<void> {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
     "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -62,38 +51,7 @@ async function renderPdfToWebp(file: File): Promise<RenderedPdf> {
   const pdf = await loadingTask.promise;
   try {
     if (pdf.numPages > MAX_WEBP_PAGE_COUNT) throw new Error(`PDFs are limited to ${MAX_WEBP_PAGE_COUNT} pages.`);
-
-    const pages: RenderedPage[] = [];
-    let pageWidth = 0;
-    let pageHeight = 0;
-
-    for (let index = 1; index <= pdf.numPages; index += 1) {
-      const page = await pdf.getPage(index);
-      const baseViewport = page.getViewport({ scale: 1 });
-      const scale = WEBP_PAGE_WIDTH / baseViewport.width;
-      const viewport = page.getViewport({ scale });
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      const context = canvas.getContext("2d", { alpha: false });
-      if (!context) throw new Error("This browser could not render the PDF pages.");
-      await page.render({ canvas, canvasContext: context, viewport }).promise;
-      const blob = await canvasToWebp(canvas);
-      if (blob.type !== "image/webp") throw new Error("This browser does not support WebP export. Try Chrome, Edge, or Safari 14+.");
-      if (blob.size > MAX_WEBP_PAGE_BYTES) throw new Error("One rendered page is too large. Try a simpler or smaller PDF.");
-      pages.push({ index, blob, fileSize: blob.size });
-      if (pages.reduce((total, item) => total + item.fileSize, 0) > MAX_WEBP_TOTAL_BYTES) {
-        throw new Error("Rendered pages are too large. Try a smaller PDF.");
-      }
-      if (index === 1) {
-        pageWidth = canvas.width;
-        pageHeight = canvas.height;
-      }
-      canvas.width = 0;
-      canvas.height = 0;
-    }
-
-    return { pageCount: pdf.numPages, pageWidth, pageHeight, pages };
+    await pdf.getPage(1);
   } finally {
     await loadingTask.destroy();
   }
@@ -186,39 +144,31 @@ export function UploadDialog() {
         securityTicket = ((await authorizeResponse.json()) as AuthorizeResponse).securityTicket;
       }
 
-      const rendered = await renderPdfToWebp(file);
+      await inspectPdf(file);
 
       setState("uploading");
       const presignResponse = await fetch("/api/uploads/presign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          source: "pdf",
           title: title.trim(),
           fileName: file.name,
           fileSize: file.size,
           mimeType: file.type,
           securityTicket,
-          pageCount: rendered.pageCount,
-          pageWidth: rendered.pageWidth,
-          pageHeight: rendered.pageHeight,
-          pages: rendered.pages.map((page) => ({ index: page.index, fileSize: page.fileSize })),
         }),
       });
       if (!presignResponse.ok) throw new Error(await readError(presignResponse));
       const upload = (await presignResponse.json()) as PresignResponse;
 
-      const uploadTargets = new Map(upload.pageUploads.map((page) => [page.index, page]));
-      for (const page of rendered.pages) {
-        const target = uploadTargets.get(page.index);
-        if (!target) throw new Error("Upload could not be prepared. Please try again.");
-        const { error: uploadError } = await getSupabaseBrowserClient().storage
-          .from("flipbooks")
-          .uploadToSignedUrl(target.storagePath, target.storageToken, page.blob, {
-            contentType: "image/webp",
-            upsert: false,
-          });
-        if (uploadError) throw new Error(`Page ${page.index} could not upload: ${uploadError.message}`);
-      }
+      const { error: uploadError } = await getSupabaseBrowserClient().storage
+        .from("flipbooks")
+        .uploadToSignedUrl(upload.storagePath, upload.storageToken, file, {
+          contentType: "application/pdf",
+          upsert: false,
+        });
+      if (uploadError) throw new Error(`The PDF could not upload: ${uploadError.message}`);
 
       setState("publishing");
       const completeResponse = await fetch("/api/uploads/complete", {
@@ -333,12 +283,12 @@ export function UploadDialog() {
                 <strong>{file ? file.name : "Choose a PDF or drop it here"}</strong>
                 <small>{file ? `${(file.size / 1024 / 1024).toFixed(1)} MB · Ready to flip` : "PDF only · Maximum 25 MB"}</small>
               </button>
-              <p className="pdf-size-note">Best results: use A4 portrait for every page.</p>
+              <p className="pdf-size-note">Portrait, landscape, square, or custom size—the viewer keeps the original page ratio and renders PDF text sharply for each screen.</p>
 
               {error && <p className="form-error" role="alert">{error}</p>}
 
               <button className="button button-primary submit-upload" type="submit" disabled={state !== "idle"}>
-                {state === "preparing" ? "Rendering pages…" : state === "uploading" ? "Uploading pages…" : state === "publishing" ? "Publishing flipbook…" : <>Create flipbook <ArrowRightIcon /></>}
+                {state === "preparing" ? "Checking PDF…" : state === "uploading" ? "Uploading PDF…" : state === "publishing" ? "Publishing flipbook…" : <>Create flipbook <ArrowRightIcon /></>}
               </button>
               <p className="privacy-note">Your flipbook will be public to anyone with the link.</p>
             </form>

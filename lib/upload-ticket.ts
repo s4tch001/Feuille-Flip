@@ -4,17 +4,33 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { UPLOAD_TICKET_TTL_MS } from "@/lib/constants";
 
-export type UploadTicketPayload = {
+type CommonUploadTicketPayload = {
   title: string;
   slug: string;
+  fileSize: number;
+  expiresAt: number;
+};
+
+export type PdfUploadTicketPayload = CommonUploadTicketPayload & {
+  kind: "pdf";
+  storagePath: string;
+};
+
+export type PageUploadTicketPayload = CommonUploadTicketPayload & {
+  kind: "pages";
   pageStoragePrefix: string;
   pageCount: number;
   pageWidth: number;
   pageHeight: number;
   pages: Array<{ index: number; fileSize: number; storagePath: string }>;
-  fileSize: number;
-  expiresAt: number;
 };
+
+export type UploadTicketPayload = PdfUploadTicketPayload | PageUploadTicketPayload;
+type UploadTicketInput = UploadTicketPayload extends infer Payload
+  ? Payload extends UploadTicketPayload
+    ? Omit<Payload, "expiresAt">
+    : never
+  : never;
 
 function encode(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");
@@ -25,7 +41,7 @@ function sign(encodedPayload: string, secret: string): string {
 }
 
 export function createUploadTicket(
-  payload: Omit<UploadTicketPayload, "expiresAt">,
+  payload: UploadTicketInput,
   secret: string,
 ): string {
   const fullPayload: UploadTicketPayload = {
@@ -52,17 +68,26 @@ export function verifyUploadTicket(ticket: string, secret: string): UploadTicket
     if (
       typeof payload.title !== "string" ||
       typeof payload.slug !== "string" ||
-      typeof payload.pageStoragePrefix !== "string" ||
-      typeof payload.pageCount !== "number" ||
-      typeof payload.pageWidth !== "number" ||
-      typeof payload.pageHeight !== "number" ||
-      !Array.isArray(payload.pages) ||
       typeof payload.fileSize !== "number" ||
       typeof payload.expiresAt !== "number" ||
       payload.expiresAt < Date.now()
     ) {
       return null;
     }
+
+    if (payload.kind === "pdf") {
+      return typeof payload.storagePath === "string" ? payload : null;
+    }
+
+    if (
+      payload.kind !== "pages" ||
+      typeof payload.pageStoragePrefix !== "string" ||
+      typeof payload.pageCount !== "number" ||
+      typeof payload.pageWidth !== "number" ||
+      typeof payload.pageHeight !== "number" ||
+      !Array.isArray(payload.pages)
+    ) return null;
+
     return payload;
   } catch {
     return null;
