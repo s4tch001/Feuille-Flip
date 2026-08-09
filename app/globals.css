@@ -1899,7 +1899,7 @@ svg {
 
 .flip-editor-shell {
   height: 100dvh;
-  min-height: 620px;
+  min-height: 0;
   display: grid;
   grid-template-rows: 58px minmax(0, 1fr);
   overflow: hidden;
@@ -1962,8 +1962,13 @@ svg {
 .flip-editor-header-actions button {
   min-height: 34px;
   padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
 }
 .flip-editor-header-actions .editor-publish-button {
   border-color: var(--purple);
@@ -2398,8 +2403,12 @@ svg {
 .editor-add-page {
   width: 100%;
   min-height: 38px;
+  display: grid;
+  place-items: center;
   color: var(--purple-dark) !important;
   font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
 }
 .editor-page-actions {
   display: grid;
@@ -2409,37 +2418,51 @@ svg {
 }
 .editor-page-actions button {
   min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
 }
 .editor-workspace {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 48px auto minmax(0, 1fr) 30px;
+  grid-template-rows: auto auto minmax(0, 1fr) 42px;
   overflow: hidden;
 }
 .editor-toolbar {
   grid-row: 1;
   padding: 6px 12px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  overflow-x: auto;
+  overflow: visible;
   border-bottom: 1px solid rgba(221, 220, 215, 0.8);
   background: #f8f7f4;
 }
 .editor-toolbar button {
-  min-width: max-content;
+  min-width: 0;
   min-height: 34px;
   padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 11px;
   font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
 }
 .editor-toolbar button:hover,
 .editor-toolbar button.is-active {
   border-color: var(--purple);
   background: var(--purple-pale);
   color: var(--purple-dark);
+}
+.editor-toolbar .editor-mobile-style-button {
+  display: none;
 }
 .editor-font-picker select {
   min-height: 34px;
@@ -2454,6 +2477,8 @@ svg {
 }
 .editor-font-picker {
   position: relative;
+  display: flex;
+  align-items: center;
 }
 .editor-font-picker .sr-only {
   top: 0;
@@ -2532,6 +2557,56 @@ svg {
   font-size: 10px;
   white-space: nowrap;
 }
+.editor-zoom-control {
+  min-width: 250px;
+  display: grid;
+  grid-template-columns: 28px minmax(80px, 150px) 38px 28px 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.editor-zoom-control label {
+  display: flex;
+  align-items: center;
+}
+.editor-zoom-control input {
+  width: 100%;
+  accent-color: var(--purple);
+  cursor: pointer;
+}
+.editor-zoom-control output {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: center;
+}
+.editor-zoom-control button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+.editor-zoom-control button:hover {
+  border-color: var(--purple);
+  color: var(--purple-dark);
+}
+.editor-zoom-control button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.editor-zoom-control .editor-zoom-fit {
+  width: 34px;
+  font-size: 9px;
+}
 .editor-properties-panel {
   display: flex;
   flex-direction: column;
@@ -2576,7 +2651,14 @@ svg {
   min-height: 34px;
   padding: 0 9px;
   font-size: 11px;
-  text-align: left;
+  line-height: 1.15;
+  text-align: center;
+}
+.editor-property-group > button,
+.editor-wide-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .editor-property-group button:hover {
   border-color: var(--purple);
@@ -2632,6 +2714,8 @@ svg {
   right: 14px;
   width: 34px;
   height: 34px;
+  display: grid;
+  place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--white);
@@ -2781,9 +2865,6 @@ svg {
   .editor-size-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .flip-editor-shell {
-    min-height: 700px;
-  }
   .flip-editor-header {
     grid-template-columns: auto minmax(100px, 1fr) auto;
   }
@@ -2820,6 +2901,9 @@ svg {
   .editor-mobile-style-button {
     display: inline-flex;
   }
+  .editor-toolbar .editor-mobile-style-button {
+    display: inline-flex;
+  }
   .editor-mobile-panel-close {
     min-height: 28px;
     padding: 0 9px;
@@ -2833,8 +2917,15 @@ svg {
   .editor-stage {
     padding: 24px;
   }
-  .editor-stage-status span:last-child {
+  .editor-stage-status > span:last-child {
     display: none;
+  }
+  .editor-stage-status {
+    justify-content: space-between;
+  }
+  .editor-zoom-control {
+    min-width: min(250px, 58vw);
+    grid-template-columns: 28px minmax(60px, 1fr) 38px 28px 34px;
   }
 }
 
@@ -2877,7 +2968,18 @@ svg {
     font-size: 10px;
   }
   .editor-toolbar {
-    padding-inline: 7px;
+    padding: 5px 7px;
+    gap: 4px;
+  }
+  .editor-toolbar button {
+    min-height: 31px;
+    padding-inline: 8px;
+    font-size: 10px;
+  }
+  .editor-font-picker select {
+    min-height: 31px;
+    max-width: 126px;
+    font-size: 10px;
   }
   .editor-properties-panel {
     left: 0;
@@ -2888,5 +2990,41 @@ svg {
   }
   .editor-stage {
     padding: 18px;
+  }
+  .editor-stage-status {
+    justify-content: center;
+  }
+  .editor-stage-status > span:first-child {
+    display: none;
+  }
+  .editor-zoom-control {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 28px minmax(54px, 1fr) 36px 28px 32px;
+  }
+}
+
+@media (max-width: 440px) {
+  .flip-editor-body {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+  .editor-pages-panel {
+    padding-inline: 5px;
+  }
+  .editor-toolbar button {
+    flex: 1 1 48px;
+  }
+  .editor-font-picker {
+    flex: 1 1 120px;
+  }
+  .editor-font-picker select {
+    width: 100%;
+    max-width: none;
+  }
+  .editor-toolbar-separator {
+    display: none;
+  }
+  .editor-stage {
+    padding: 12px;
   }
 }

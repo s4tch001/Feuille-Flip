@@ -17,6 +17,10 @@ import {
 
 import { Brand } from "@/components/brand";
 import { TurnstileGate } from "@/components/turnstile-gate";
+import {
+  TURNSTILE_CHALLENGE_ERROR_EVENT,
+  TURNSTILE_TOKEN_EVENT,
+} from "@/components/turnstile-script";
 import { MAX_WEBP_PAGE_BYTES, MAX_WEBP_TOTAL_BYTES } from "@/lib/constants";
 import {
   createEditorProject,
@@ -46,7 +50,7 @@ type FabricNamespace = typeof import("fabric");
 type EditorCanvas = import("fabric").Canvas;
 type EditorObject = import("fabric").FabricObject;
 type SaveState = "idle" | "saving" | "saved" | "error";
-type PublishState = "idle" | "preparing" | "uploading" | "publishing" | "success";
+type PublishState = "idle" | "security" | "preparing" | "uploading" | "publishing" | "success";
 type SelectedKind = "none" | "text" | "image" | "multi" | "group" | "object";
 type ShadowDirection = "none" | "top" | "top-right" | "right" | "bottom-right" | "bottom" | "bottom-left" | "left" | "top-left";
 type ApiErrorBody = { error?: { message?: string } };
@@ -59,6 +63,9 @@ type AuthorizeResponse = { securityTicket: string };
 
 const HISTORY_LIMIT = 40;
 const AUTOSAVE_DELAY = 700;
+const ZOOM_MIN = 25;
+const ZOOM_MAX = 300;
+const ZOOM_STEP = 10;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const FONT_CHOICES = [
   "Montserrat",
@@ -185,6 +192,43 @@ async function fetchAtStage(url: string, init: RequestInit, stage: string): Prom
   }
 }
 
+function waitForTurnstileToken(timeoutMs = 45_000): Promise<string> {
+  const existingToken = window.feuilleTurnstileToken;
+  if (existingToken) return Promise.resolve(existingToken);
+  if (window.feuilleTurnstileError) return Promise.reject(new Error(window.feuilleTurnstileError));
+
+  return new Promise((resolve, reject) => {
+    function cleanup() {
+      clearTimeout(timeoutId);
+      window.removeEventListener(TURNSTILE_TOKEN_EVENT, handleToken);
+      window.removeEventListener(TURNSTILE_CHALLENGE_ERROR_EVENT, handleError);
+    }
+
+    function handleToken() {
+      const token = window.feuilleTurnstileToken;
+      if (!token) return;
+      cleanup();
+      resolve(token);
+    }
+
+    function handleError(event: Event) {
+      cleanup();
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      reject(new Error(detail?.message ?? "The security check did not complete. Please try again."));
+    }
+
+    window.addEventListener(TURNSTILE_TOKEN_EVENT, handleToken);
+    window.addEventListener(TURNSTILE_CHALLENGE_ERROR_EVENT, handleError);
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error("The security check took too long. Check blockers or your connection, then try again."));
+    }, timeoutMs);
+
+    // Cover a token callback that occurred between the first check and event registration.
+    handleToken();
+  });
+}
+
 async function renderProjectPages(
   fabric: FabricNamespace,
   project: EditorProject,
@@ -290,6 +334,7 @@ export function FlipbookEditor() {
   const [publishedPath, setPublishedPath] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [draggingPageId, setDraggingPageId] = useState("");
+  const [zoomLevel, setZoomLevel] = useState(100);
 
   const currentPage = project?.pages.find((page) => page.id === project.activePageId) ?? null;
 
@@ -521,7 +566,7 @@ export function FlipbookEditor() {
     return () => observer.disconnect();
   }, [project]);
 
-  const pageScale = useMemo(() => {
+  const fitPageScale = useMemo(() => {
     if (!project) return 1;
     return Math.min(
       1,
@@ -529,6 +574,8 @@ export function FlipbookEditor() {
       Math.max(0.08, (stageSize.height - 16) / project.pageSize.height),
     );
   }, [project, stageSize]);
+
+  const pageScale = fitPageScale * zoomLevel / 100;
 
   const scaledPageStyle = useMemo(() => project ? {
     width: project.pageSize.width * pageScale,
@@ -560,6 +607,7 @@ export function FlipbookEditor() {
     projectRef.current = next;
     activePageIdRef.current = next.activePageId;
     setProject(next);
+    setZoomLevel(100);
     setMessage("");
   }
 
@@ -569,6 +617,23 @@ export function FlipbookEditor() {
 
   function handleOrientation(event: MouseEvent<HTMLButtonElement>) {
     setOrientation(event.currentTarget.dataset.orientation === "landscape" ? "landscape" : "portrait");
+  }
+
+  function updateZoom(nextZoom: number) {
+    setZoomLevel(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(nextZoom))));
+  }
+
+  function handleZoomChange(event: ChangeEvent<HTMLInputElement>) {
+    updateZoom(event.currentTarget.valueAsNumber || 100);
+  }
+
+  function handleZoomStep(event: MouseEvent<HTMLButtonElement>) {
+    const direction = event.currentTarget.dataset.zoom === "out" ? -1 : 1;
+    setZoomLevel((current) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current + direction * ZOOM_STEP)));
+  }
+
+  function handleZoomFit() {
+    setZoomLevel(100);
   }
 
   function handlePageSelection(event: MouseEvent<HTMLButtonElement>) {
@@ -1473,6 +1538,7 @@ export function FlipbookEditor() {
       historyRef.current = Object.fromEntries(next.pages.map((page) => [page.id, [cloneCanvasState(page.canvas)]]));
       futureRef.current = {};
       setProject(next);
+      setZoomLevel(100);
       setMessage("Project imported and saved as a new local draft.");
     } catch {
       setMessage("That is not a valid Feuille Flip project file.");
@@ -1481,6 +1547,7 @@ export function FlipbookEditor() {
 
   function handleNewProject() {
     commitCanvas(true);
+    setZoomLevel(100);
     setProject(null);
     projectRef.current = null;
     activePageIdRef.current = "";
@@ -1489,6 +1556,8 @@ export function FlipbookEditor() {
 
   function handleOpenPublish() {
     commitCanvas(true);
+    window.feuilleTurnstileToken = "";
+    window.feuilleTurnstileError = "";
     setPublishError("");
     setPublishState("idle");
     setPublishProgress(0);
@@ -1497,7 +1566,7 @@ export function FlipbookEditor() {
   }
 
   function handleClosePublish() {
-    if (publishState === "preparing" || publishState === "uploading" || publishState === "publishing") return;
+    if (publishState === "security" || publishState === "preparing" || publishState === "uploading" || publishState === "publishing") return;
     setPublishOpen(false);
     if (publishState === "success") {
       setProject(null);
@@ -1512,28 +1581,22 @@ export function FlipbookEditor() {
     const projectValue = projectRef.current;
     const fabric = fabricRef.current;
     const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
-    const securityToken = window.feuilleTurnstileToken ?? "";
     if (!projectValue || !fabric) return;
     if (!slugifyTitle(projectValue.title)) {
       setPublishError("Use at least one letter or number in the project title.");
       return;
     }
-    if (turnstileSiteKey && !securityToken) {
-      setPublishError("Complete the security check before publishing.");
-      return;
-    }
 
     try {
       setPublishError("");
-      setPublishState("preparing");
       setPublishProgress(0);
       commitCanvas(true);
       const latestProject = projectRef.current ?? projectValue;
-      const rendered = await renderProjectPages(fabric, latestProject, setPublishProgress);
-      const totalSize = rendered.blobs.reduce((sum, blob) => sum + blob.size, 0);
 
       let securityTicket: string | undefined;
       if (turnstileSiteKey) {
+        setPublishState("security");
+        const securityToken = await waitForTurnstileToken();
         const authorizeResponse = await fetchAtStage("/api/uploads/authorize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1542,6 +1605,11 @@ export function FlipbookEditor() {
         if (!authorizeResponse.ok) throw new Error(await readApiError(authorizeResponse));
         securityTicket = (await authorizeResponse.json() as AuthorizeResponse).securityTicket;
       }
+
+      // Verify the short-lived Turnstile token before the potentially long HD render.
+      setPublishState("preparing");
+      const rendered = await renderProjectPages(fabric, latestProject, setPublishProgress);
+      const totalSize = rendered.blobs.reduce((sum, blob) => sum + blob.size, 0);
 
       const presignResponse = await fetchAtStage("/api/uploads/presign", {
         method: "POST",
@@ -1623,6 +1691,9 @@ export function FlipbookEditor() {
     if (modifier && event.key.toLowerCase() === "z" && !event.shiftKey) action = handleUndo;
     if (modifier && (event.key.toLowerCase() === "y" || (event.key.toLowerCase() === "z" && event.shiftKey))) action = handleRedo;
     if (modifier && event.key.toLowerCase() === "g") action = event.shiftKey ? handleUngroupSelection : handleGroupSelection;
+    if (modifier && (event.key === "+" || event.key === "=")) action = () => setZoomLevel((current) => Math.min(ZOOM_MAX, current + ZOOM_STEP));
+    if (modifier && event.key === "-") action = () => setZoomLevel((current) => Math.max(ZOOM_MIN, current - ZOOM_STEP));
+    if (modifier && event.key === "0") action = handleZoomFit;
     if (!modifier && event.key === "ArrowLeft") action = () => nudgeSelectedObject(event.shiftKey ? -10 : -1, 0);
     if (!modifier && event.key === "ArrowRight") action = () => nudgeSelectedObject(event.shiftKey ? 10 : 1, 0);
     if (!modifier && event.key === "ArrowUp") action = () => nudgeSelectedObject(0, event.shiftKey ? -10 : -1);
@@ -1794,7 +1865,17 @@ export function FlipbookEditor() {
             </div>
           </div>
           <div className="editor-stage-status">
-            <span>{project.pageSize.width} × {project.pageSize.height}px · {Math.round(pageScale * 100)}%</span>
+            <span>{project.pageSize.width} × {project.pageSize.height}px · canvas {Math.round(pageScale * 100)}%</span>
+            <div className="editor-zoom-control">
+              <button aria-label="Zoom out" data-zoom="out" disabled={zoomLevel <= ZOOM_MIN} onClick={handleZoomStep} title="Zoom out (Ctrl/Cmd −)" type="button">−</button>
+              <label>
+                <span className="sr-only">Zoom</span>
+                <input aria-label="Zoom" max={ZOOM_MAX} min={ZOOM_MIN} onChange={handleZoomChange} step={5} type="range" value={zoomLevel} />
+              </label>
+              <output aria-live="polite">{zoomLevel}%</output>
+              <button aria-label="Zoom in" data-zoom="in" disabled={zoomLevel >= ZOOM_MAX} onClick={handleZoomStep} title="Zoom in (Ctrl/Cmd +)" type="button">+</button>
+              <button className="editor-zoom-fit" onClick={handleZoomFit} title="Fit page (Ctrl/Cmd 0)" type="button">Fit</button>
+            </div>
             <span>HD export: {Math.round(project.pageSize.width * getHdExportMultiplier(project.pageSize))} × {Math.round(project.pageSize.height * getHdExportMultiplier(project.pageSize))}px</span>
           </div>
         </section>
@@ -1816,7 +1897,7 @@ export function FlipbookEditor() {
           <label className="editor-color-control"><span>Object / brush</span><input onChange={handleColorChange} type="color" value={activeColor} /></label>
           <label className="editor-color-control"><span>Page background</span><input onChange={handleBackgroundChange} type="color" value={backgroundColor} /></label>
           <div className="editor-property-group editor-gradient-controls">
-            <span>Photoshop-style gradient</span>
+            <span>Gradient</span>
             <div className="editor-gradient-colors">
               <label>Start <input onChange={handleColorChange} type="color" value={activeColor} /></label>
               <i aria-hidden="true" style={{ background: `linear-gradient(90deg, ${activeColor}, ${gradientEndColor})` }} />
@@ -2015,7 +2096,7 @@ export function FlipbookEditor() {
                 {publishState !== "idle" && (
                   <div className="editor-publish-progress" role="status">
                     <span style={{ width: `${Math.max(6, (publishProgress / project.pages.length) * 100)}%` }} />
-                    <p>{publishState === "preparing" ? `Preparing HD page ${publishProgress} of ${project.pages.length}…` : publishState === "uploading" ? `Uploading page ${publishProgress} of ${project.pages.length}…` : "Creating your public link…"}</p>
+                    <p>{publishState === "security" ? "Waiting for a fresh security check…" : publishState === "preparing" ? `Preparing HD page ${publishProgress} of ${project.pages.length}…` : publishState === "uploading" ? `Uploading page ${publishProgress} of ${project.pages.length}…` : "Creating your public link…"}</p>
                   </div>
                 )}
                 <button className="button button-primary editor-confirm-publish" disabled={publishState !== "idle"} onClick={handlePublish} type="button">Publish HD flipbook</button>

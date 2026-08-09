@@ -32,11 +32,14 @@ account.
   multi-selection.
 - Center/edge snapping, rulers, arrow-key nudging, and common undo, redo, duplicate, group, and
   delete keyboard shortcuts.
+- A bottom zoom slider with zoom-out, zoom-in, and fit controls. `Ctrl/Cmd +`, `Ctrl/Cmd -`, and
+  `Ctrl/Cmd 0` provide the matching keyboard shortcuts.
 - Local JPG, PNG, and WebP photos up to 10 MB and 8,000 pixels per dimension.
 - Photo filters, circle/rounded masks, original/1:1/4:5/16:9 crops, flipping, rotation, and local
   light-background cleanup.
 - HD PNG export and public WebP publishing at a 2,560-pixel long edge.
-- A responsive mobile style sheet for editing controls on smaller screens.
+- A responsive wrapping toolbar and mobile style sheet that keep every editor action visible without
+  horizontal toolbar scrolling.
 
 ### Upload & Flip
 
@@ -98,8 +101,9 @@ stored size, MIME metadata, signed ticket, and `%PDF-` signature before creating
 
 ### Editor publish
 
-1. The browser renders every page at a 2,560-pixel long edge and keeps its selected ratio.
-2. A Turnstile token is exchanged for a short-lived security ticket when Turnstile is configured.
+1. A freshly rendered Turnstile challenge is exchanged immediately for a short-lived security ticket
+   when Turnstile is configured; tokens from prior client-side routes are discarded.
+2. The browser renders every page at a 2,560-pixel long edge and keeps its selected ratio.
 3. `/api/uploads/presign` validates metadata and returns signed WebP upload URLs.
 4. The browser uploads each page directly to the `flipbooks` bucket.
 5. `/api/uploads/complete` verifies page count, sequence, size, MIME metadata, and the signed ticket.

@@ -4,6 +4,8 @@ import Script from "next/script";
 
 export const TURNSTILE_READY_EVENT = "feuille:turnstile-ready";
 export const TURNSTILE_ERROR_EVENT = "feuille:turnstile-error";
+export const TURNSTILE_TOKEN_EVENT = "feuille:turnstile-token";
+export const TURNSTILE_CHALLENGE_ERROR_EVENT = "feuille:turnstile-challenge-error";
 
 declare global {
   interface Window {
