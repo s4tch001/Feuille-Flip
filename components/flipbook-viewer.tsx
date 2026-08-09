@@ -27,10 +27,7 @@ type PageFlipApi = {
   getFlipController: () => {
     getCalculation: () => { getDirection: () => number } | null;
   };
-  getPage: (page: number) => {
-    setDensity: (density: "soft" | "hard") => void;
-    setDrawingDensity: (density: "soft" | "hard") => void;
-  };
+  getPage: (page: number) => { setDensity: (density: "soft" | "hard") => void };
   getPageCollection: () => {
     getCurrentSpreadIndex: () => number;
     getSpread: () => number[][];
@@ -421,12 +418,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     const pageFlip = flipbookRef.current?.pageFlip();
     if (!pageFlip) return;
     const totalPages = pageFlip.getPageCount();
-    for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
-      const page = pageFlip.getPage(pageIndex);
-      page.setDensity("soft");
-      page.setDrawingDensity("soft");
-    }
-    pageFlip.update();
     setBookPose(getBookPose(currentBookPageRef.current, totalPages));
   }, [setBookPose]);
 
