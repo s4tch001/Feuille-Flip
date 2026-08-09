@@ -204,8 +204,15 @@ npm run start     # Serve the production build locally
 3. Keep the detected Next.js settings.
 4. Add all six environment variables listed above.
 5. Set `NEXT_PUBLIC_SITE_URL` to the final HTTPS origin.
-6. Add every deployed hostname to the Turnstile widget.
-7. Run both Supabase migrations before accepting uploads.
+6. Make sure `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` come from the same Turnstile
+   widget and are available to the Production build and Functions runtime. Redeploy after changing
+   either value.
+7. Add every deployed hostname to the Turnstile widget.
+8. Run both Supabase migrations before accepting uploads.
+
+Turnstile widget success only means the browser minted a token; publishing succeeds only after the
+server validates that token. The authorize route records sanitized Cloudflare error codes in server
+logs and distinguishes a deployment-key problem from an expired or duplicate user challenge.
 
 The scheduled `netlify/functions/keep-supabase-awake.mts` function runs three times daily and makes a
 small health query. It is only an operational workaround for inactivity-related pauses.

@@ -37,7 +37,11 @@ function getTurnstileErrorMessage(code: string) {
   return `Security check failed (${code}). Please try again.`;
 }
 
-export function TurnstileGate() {
+type TurnstileGateProps = {
+  onTokenChange?: (token: string) => void;
+};
+
+export function TurnstileGate({ onTokenChange }: TurnstileGateProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const tokenRef = useRef("");
@@ -52,6 +56,7 @@ export function TurnstileGate() {
     // Never reuse a token created by a gate from a previous client-side route.
     window.feuilleTurnstileToken = "";
     window.feuilleTurnstileError = "";
+    onTokenChange?.("");
 
     function reportChallengeError(message: string) {
       window.feuilleTurnstileError = message;
@@ -62,6 +67,7 @@ export function TurnstileGate() {
       tokenRef.current = "";
       window.feuilleTurnstileToken = "";
       window.feuilleTurnstileError = "";
+      onTokenChange?.("");
       setMessage("Complete the security check before your next upload.");
       if (widgetIdRef.current) window.turnstile?.reset(widgetIdRef.current);
     }
@@ -78,6 +84,7 @@ export function TurnstileGate() {
             tokenRef.current = token;
             window.feuilleTurnstileToken = token;
             window.feuilleTurnstileError = "";
+            onTokenChange?.(token);
             setMessage("Security check complete. You can upload when ready.");
             window.dispatchEvent(new Event(TURNSTILE_TOKEN_EVENT));
           },
@@ -85,6 +92,7 @@ export function TurnstileGate() {
             const errorMessage = getTurnstileErrorMessage(code);
             tokenRef.current = "";
             window.feuilleTurnstileToken = "";
+            onTokenChange?.("");
             setMessage(errorMessage);
             reportChallengeError(errorMessage);
           },
@@ -92,6 +100,7 @@ export function TurnstileGate() {
             const errorMessage = "Security check expired. Complete it again before your next upload.";
             tokenRef.current = "";
             window.feuilleTurnstileToken = "";
+            onTokenChange?.("");
             setMessage(errorMessage);
             reportChallengeError(errorMessage);
           },
@@ -124,7 +133,7 @@ export function TurnstileGate() {
         widgetIdRef.current = null;
       }
     };
-  }, [siteKey]);
+  }, [onTokenChange, siteKey]);
 
   if (!siteKey) return null;
 

@@ -53,7 +53,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 type PublishState = "idle" | "security" | "preparing" | "uploading" | "publishing" | "success";
 type SelectedKind = "none" | "text" | "image" | "multi" | "group" | "object";
 type ShadowDirection = "none" | "top" | "top-right" | "right" | "bottom-right" | "bottom" | "bottom-left" | "left" | "top-left";
-type ApiErrorBody = { error?: { message?: string } };
+type ApiErrorBody = { error?: { code?: string; message?: string } };
 type PagePresignResponse = {
   pageUploads: Array<{ index: number; storagePath: string; storageToken: string }>;
   ticket: string;
@@ -179,9 +179,20 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-async function readApiError(response: Response): Promise<string> {
+class ApiRequestError extends Error {
+  constructor(message: string, readonly code: string, readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+async function createApiRequestError(response: Response): Promise<ApiRequestError> {
   const body = await response.json().catch(() => ({})) as ApiErrorBody;
-  return body.error?.message ?? "Something went wrong. Please try again.";
+  return new ApiRequestError(
+    body.error?.message ?? "Something went wrong. Please try again.",
+    body.error?.code ?? "UNKNOWN_API_ERROR",
+    response.status,
+  );
 }
 
 async function fetchAtStage(url: string, init: RequestInit, stage: string): Promise<Response> {
@@ -335,6 +346,13 @@ export function FlipbookEditor() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [draggingPageId, setDraggingPageId] = useState("");
   const [zoomLevel, setZoomLevel] = useState(100);
+  const [securityCheckReady, setSecurityCheckReady] = useState(false);
+  const securityTokenRef = useRef("");
+
+  const handleTurnstileTokenChange = useCallback((token: string) => {
+    securityTokenRef.current = token;
+    setSecurityCheckReady(Boolean(token));
+  }, []);
 
   const currentPage = project?.pages.find((page) => page.id === project.activePageId) ?? null;
 
@@ -1556,8 +1574,10 @@ export function FlipbookEditor() {
 
   function handleOpenPublish() {
     commitCanvas(true);
+    securityTokenRef.current = "";
     window.feuilleTurnstileToken = "";
     window.feuilleTurnstileError = "";
+    setSecurityCheckReady(false);
     setPublishError("");
     setPublishState("idle");
     setPublishProgress(0);
@@ -1587,6 +1607,7 @@ export function FlipbookEditor() {
       return;
     }
 
+    let securityAuthorized = !turnstileSiteKey;
     try {
       setPublishError("");
       setPublishProgress(0);
@@ -1596,14 +1617,18 @@ export function FlipbookEditor() {
       let securityTicket: string | undefined;
       if (turnstileSiteKey) {
         setPublishState("security");
-        const securityToken = await waitForTurnstileToken();
+        const securityToken = securityTokenRef.current || await waitForTurnstileToken();
+        securityTokenRef.current = "";
+        window.feuilleTurnstileToken = "";
+        setSecurityCheckReady(false);
         const authorizeResponse = await fetchAtStage("/api/uploads/authorize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ turnstileToken: securityToken }),
         }, "The security check");
-        if (!authorizeResponse.ok) throw new Error(await readApiError(authorizeResponse));
+        if (!authorizeResponse.ok) throw await createApiRequestError(authorizeResponse);
         securityTicket = (await authorizeResponse.json() as AuthorizeResponse).securityTicket;
+        securityAuthorized = true;
       }
 
       // Verify the short-lived Turnstile token before the potentially long HD render.
@@ -1627,7 +1652,7 @@ export function FlipbookEditor() {
           securityTicket,
         }),
       }, "Publishing setup");
-      if (!presignResponse.ok) throw new Error(await readApiError(presignResponse));
+      if (!presignResponse.ok) throw await createApiRequestError(presignResponse);
       const upload = await presignResponse.json() as PagePresignResponse;
 
       setPublishState("uploading");
@@ -1651,14 +1676,21 @@ export function FlipbookEditor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticket: upload.ticket }),
       }, "Final publishing");
-      if (!completeResponse.ok) throw new Error(await readApiError(completeResponse));
+      if (!completeResponse.ok) throw await createApiRequestError(completeResponse);
       const published = await completeResponse.json() as CompleteResponse;
       await deleteEditorProject(latestProject.id);
       window.feuilleResetTurnstile?.();
       setPublishedPath(published.url);
       setPublishState("success");
     } catch (error) {
-      window.feuilleResetTurnstile?.();
+      const isSecurityConfigurationError = error instanceof ApiRequestError && error.code === "SECURITY_CONFIGURATION_ERROR";
+      const shouldResetSecurity = turnstileSiteKey && (
+        securityAuthorized ||
+        !(error instanceof ApiRequestError) ||
+        !isSecurityConfigurationError
+      );
+      if (shouldResetSecurity) window.feuilleResetTurnstile?.();
+      if (isSecurityConfigurationError) setSecurityCheckReady(false);
       setPublishState("idle");
       setPublishError(error instanceof Error ? error.message : "The flipbook could not be published.");
     }
@@ -2091,7 +2123,7 @@ export function FlipbookEditor() {
                   <div><dt>Ratio</dt><dd>{project.pageSize.width}:{project.pageSize.height}</dd></div>
                   <div><dt>Viewer quality</dt><dd>2,560px long edge</dd></div>
                 </dl>
-                <TurnstileGate />
+                <TurnstileGate onTokenChange={handleTurnstileTokenChange} />
                 {publishError && <p className="form-error" role="alert">{publishError}</p>}
                 {publishState !== "idle" && (
                   <div className="editor-publish-progress" role="status">
@@ -2099,7 +2131,7 @@ export function FlipbookEditor() {
                     <p>{publishState === "security" ? "Waiting for a fresh security check…" : publishState === "preparing" ? `Preparing HD page ${publishProgress} of ${project.pages.length}…` : publishState === "uploading" ? `Uploading page ${publishProgress} of ${project.pages.length}…` : "Creating your public link…"}</p>
                   </div>
                 )}
-                <button className="button button-primary editor-confirm-publish" disabled={publishState !== "idle"} onClick={handlePublish} type="button">Publish HD flipbook</button>
+                <button className="button button-primary editor-confirm-publish" disabled={publishState !== "idle" || (Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) && !securityCheckReady)} onClick={handlePublish} type="button">Publish HD flipbook</button>
                 <button className="editor-publish-cancel" disabled={publishState !== "idle"} onClick={handleClosePublish} type="button">Keep editing</button>
               </div>
             )}

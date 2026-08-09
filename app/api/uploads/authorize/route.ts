@@ -33,8 +33,30 @@ export async function POST(request: Request) {
     return apiError(422, "INVALID_SECURITY_CHECK", "The security check was not accepted.");
   }
 
-  if (!(await verifyTurnstileToken(parsed.data.turnstileToken, clientIp))) {
-    return apiError(403, "TURNSTILE_FAILED", "Please complete the security check and try again.");
+  const requestId = crypto.randomUUID();
+  const verification = await verifyTurnstileToken(
+    parsed.data.turnstileToken,
+    clientIp,
+    new URL(request.url).hostname,
+  );
+  if (!verification.ok) {
+    console.warn("Turnstile validation rejected", {
+      requestId,
+      kind: verification.kind,
+      errorCodes: verification.errorCodes,
+      hostname: verification.hostname,
+      action: verification.action,
+    });
+    if (verification.kind === "configuration") {
+      return apiError(503, "SECURITY_CONFIGURATION_ERROR", "Publishing security is temporarily misconfigured. Please try again later.");
+    }
+    if (verification.kind === "upstream") {
+      return apiError(503, "SECURITY_SERVICE_UNAVAILABLE", "The security service is temporarily unavailable. Please try again.");
+    }
+    if (verification.kind === "policy") {
+      return apiError(403, "SECURITY_POLICY_FAILED", "The security check was not accepted for this site.");
+    }
+    return apiError(403, "TURNSTILE_FAILED", "Please complete a fresh security check and try again.");
   }
 
   return NextResponse.json(
