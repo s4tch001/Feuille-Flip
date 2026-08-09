@@ -9,6 +9,18 @@ import { createUploadSecurityTicket } from "@/lib/upload-security-ticket";
 
 export const runtime = "nodejs";
 
+function getExpectedTurnstileHostname(request: Request) {
+  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (configuredSiteUrl) {
+    try {
+      return new URL(configuredSiteUrl).hostname;
+    } catch {
+      // Fall back to the request URL so a malformed optional setting does not break local development.
+    }
+  }
+  return new URL(request.url).hostname;
+}
+
 export async function POST(request: Request) {
   if (!hasTrustedOrigin(request)) {
     return apiError(403, "UNTRUSTED_ORIGIN", "This upload request was not accepted.");
@@ -34,10 +46,11 @@ export async function POST(request: Request) {
   }
 
   const requestId = crypto.randomUUID();
+  const expectedHostname = getExpectedTurnstileHostname(request);
   const verification = await verifyTurnstileToken(
     parsed.data.turnstileToken,
     clientIp,
-    new URL(request.url).hostname,
+    expectedHostname,
   );
   if (!verification.ok) {
     console.warn("Turnstile validation rejected", {
@@ -45,6 +58,7 @@ export async function POST(request: Request) {
       kind: verification.kind,
       errorCodes: verification.errorCodes,
       hostname: verification.hostname,
+      expectedHostname,
       action: verification.action,
     });
     if (verification.kind === "configuration") {
