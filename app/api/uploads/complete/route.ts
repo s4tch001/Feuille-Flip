@@ -164,7 +164,7 @@ export async function POST(request: Request) {
   if (insertError) {
     await removeInvalidUpload(payload.pages.map((page) => page.storagePath));
     if (insertError.code === "23505") {
-      return apiError(409, "SLUG_TAKEN", "That title was just used. Try a more specific title.");
+      return apiError(409, "SLUG_TAKEN", "That file name was just used. Choose another.");
     }
     return apiError(500, "SAVE_FAILED", "The flipbook could not be published. Please try again.");
   }

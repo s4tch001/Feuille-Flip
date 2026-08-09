@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { slugifyTitle } from "@/lib/slug";
+import { isReservedPublicSlug, slugifyTitle } from "@/lib/slug";
 
 describe("slugifyTitle", () => {
   it("turns the requested example into a clean URL", () => {
@@ -18,5 +18,9 @@ describe("slugifyTitle", () => {
   it("returns an empty slug for a symbols-only title", () => {
     expect(slugifyTitle("✨!!!✨")).toBe("");
   });
-});
 
+  it("identifies public names reserved by application routes", () => {
+    expect(isReservedPublicSlug(slugifyTitle("Create"))).toBe(true);
+    expect(isReservedPublicSlug(slugifyTitle("My creation"))).toBe(false);
+  });
+});

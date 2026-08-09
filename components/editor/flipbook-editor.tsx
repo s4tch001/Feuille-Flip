@@ -23,7 +23,7 @@ import {
   TURNSTILE_CHALLENGE_ERROR_EVENT,
   TURNSTILE_TOKEN_EVENT,
 } from "@/components/turnstile-script";
-import { MAX_WEBP_PAGE_BYTES, MAX_WEBP_TOTAL_BYTES } from "@/lib/constants";
+import { MAX_TITLE_LENGTH, MAX_WEBP_PAGE_BYTES, MAX_WEBP_TOTAL_BYTES } from "@/lib/constants";
 import {
   createEditorProject,
   emptyCanvas,
@@ -45,14 +45,14 @@ import {
   requestPersistentEditorStorage,
   saveEditorProject,
 } from "@/lib/editor/storage";
-import { slugifyTitle } from "@/lib/slug";
+import { isReservedPublicSlug, slugifyTitle } from "@/lib/slug";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type FabricNamespace = typeof import("fabric");
 type EditorCanvas = import("fabric").Canvas;
 type EditorObject = import("fabric").FabricObject;
 type SaveState = "idle" | "saving" | "saved" | "error";
-type PublishState = "idle" | "security" | "preparing" | "uploading" | "publishing" | "success";
+type PublishState = "idle" | "checking" | "security" | "preparing" | "uploading" | "publishing" | "success";
 type SelectedKind = "none" | "text" | "image" | "multi" | "group" | "object";
 type ShadowDirection = "none" | "top" | "top-right" | "right" | "bottom-right" | "bottom" | "bottom-left" | "left" | "top-left";
 type ApiErrorBody = { error?: { code?: string; message?: string } };
@@ -305,6 +305,7 @@ export function FlipbookEditor() {
   const futureRef = useRef<Record<string, CanvasState[]>>({});
   const imageInputRef = useRef<HTMLInputElement>(null);
   const projectInputRef = useRef<HTMLInputElement>(null);
+  const publishFileNameInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const pagePointerDragRef = useRef<{ pageId: string; pointerId: number; startX: number; startY: number; active: boolean; lastTargetId: string } | null>(null);
 
@@ -344,6 +345,8 @@ export function FlipbookEditor() {
   const [publishState, setPublishState] = useState<PublishState>("idle");
   const [publishProgress, setPublishProgress] = useState(0);
   const [publishError, setPublishError] = useState("");
+  const [publishFileName, setPublishFileName] = useState("");
+  const [publishFileNameError, setPublishFileNameError] = useState("");
   const [publishedPath, setPublishedPath] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [draggingPageId, setDraggingPageId] = useState("");
@@ -1576,6 +1579,9 @@ export function FlipbookEditor() {
 
   function handleOpenPublish() {
     commitCanvas(true);
+    const projectSlug = slugifyTitle(projectRef.current?.title ?? "");
+    setPublishFileName(projectSlug && !isReservedPublicSlug(projectSlug) ? projectSlug : `${projectSlug || "my"}-flipbook`);
+    setPublishFileNameError("");
     securityTokenRef.current = "";
     window.feuilleTurnstileToken = "";
     window.feuilleTurnstileError = "";
@@ -1588,7 +1594,7 @@ export function FlipbookEditor() {
   }
 
   function handleClosePublish() {
-    if (publishState === "security" || publishState === "preparing" || publishState === "uploading" || publishState === "publishing") return;
+    if (publishState === "checking" || publishState === "security" || publishState === "preparing" || publishState === "uploading" || publishState === "publishing") return;
     setPublishOpen(false);
     if (publishState === "success") {
       setProject(null);
@@ -1604,15 +1610,51 @@ export function FlipbookEditor() {
     const fabric = fabricRef.current;
     const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
     if (!projectValue || !fabric) return;
-    if (!slugifyTitle(projectValue.title)) {
-      setPublishError("Use at least one letter or number in the project title.");
+    const publicFileName = publishFileName.trim();
+    const publicSlug = slugifyTitle(publicFileName);
+    if (!publicSlug) {
+      setPublishFileNameError("Use at least one letter or number in the file name.");
+      publishFileNameInputRef.current?.focus();
+      return;
+    }
+    if (publicFileName.length > MAX_TITLE_LENGTH) {
+      setPublishFileNameError(`File name must be ${MAX_TITLE_LENGTH} characters or fewer.`);
+      publishFileNameInputRef.current?.focus();
+      return;
+    }
+    if (isReservedPublicSlug(publicSlug)) {
+      setPublishFileNameError("That file name is reserved. Choose another.");
+      publishFileNameInputRef.current?.focus();
+      return;
+    }
+
+    setPublishFileNameError("");
+    setPublishError("");
+    setPublishProgress(0);
+    setPublishState("checking");
+    try {
+      const checkNameResponse = await fetchAtStage("/api/uploads/check-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicFileName }),
+      }, "The file-name check");
+      if (!checkNameResponse.ok) throw await createApiRequestError(checkNameResponse);
+    } catch (error) {
+      setPublishState("idle");
+      if (error instanceof ApiRequestError && (error.code === "SLUG_TAKEN" || error.code === "INVALID_PUBLIC_NAME")) {
+        setPublishFileNameError(error.message);
+        requestAnimationFrame(() => {
+          publishFileNameInputRef.current?.focus();
+          publishFileNameInputRef.current?.select();
+        });
+      } else {
+        setPublishError(error instanceof Error ? error.message : "The file name could not be checked.");
+      }
       return;
     }
 
     let securityAuthorized = !turnstileSiteKey;
     try {
-      setPublishError("");
-      setPublishProgress(0);
       commitCanvas(true);
       const latestProject = projectRef.current ?? projectValue;
 
@@ -1644,7 +1686,8 @@ export function FlipbookEditor() {
         body: JSON.stringify({
           source: "pages",
           title: latestProject.title,
-          fileName: `${safeFileName(latestProject.title)}.pdf`,
+          publicFileName,
+          fileName: `${publicSlug}.pdf`,
           fileSize: totalSize,
           mimeType: "application/pdf",
           pageCount: rendered.blobs.length,
@@ -1694,13 +1737,23 @@ export function FlipbookEditor() {
       if (shouldResetSecurity) window.feuilleResetTurnstile?.();
       if (isSecurityConfigurationError) setSecurityCheckReady(false);
       setPublishState("idle");
-      setPublishError(error instanceof Error ? error.message : "The flipbook could not be published.");
+      if (error instanceof ApiRequestError && error.code === "SLUG_TAKEN") {
+        setPublishFileNameError(error.message);
+        setPublishError("");
+        requestAnimationFrame(() => {
+          publishFileNameInputRef.current?.focus();
+          publishFileNameInputRef.current?.select();
+        });
+      } else {
+        setPublishError(error instanceof Error ? error.message : "The flipbook could not be published.");
+      }
     }
   }
 
   const publishedUrl = typeof window === "undefined" || !publishedPath
     ? ""
     : new URL(publishedPath, window.location.origin).toString();
+  const publishSlug = slugifyTitle(publishFileName);
 
   async function handleCopyPublishedLink() {
     await navigator.clipboard.writeText(publishedUrl);
@@ -2116,7 +2169,10 @@ export function FlipbookEditor() {
                 <button className="button button-secondary" onClick={handleNativeShare} type="button">Share from device</button>
               </div>
             ) : (
-              <div>
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                void handlePublish();
+              }}>
                 <p className="eyebrow">Publish flipbook</p>
                 <h2 id="editor-publish-title">Make “{project.title}” public?</h2>
                 <p className="editor-publish-copy">Your draft stays local. Only the HD page images are uploaded after you confirm. The public link and uploaded files expire after 3 months.</p>
@@ -2125,17 +2181,39 @@ export function FlipbookEditor() {
                   <div><dt>Ratio</dt><dd>{project.pageSize.width}:{project.pageSize.height}</dd></div>
                   <div><dt>Viewer quality</dt><dd>2,560px long edge</dd></div>
                 </dl>
+                <label className="field-label editor-publish-file-label" htmlFor="editor-publish-file-name">File name / public link <span>Required</span></label>
+                <input
+                  aria-describedby="editor-publish-link-preview editor-publish-file-help"
+                  aria-invalid={Boolean(publishFileNameError)}
+                  autoComplete="off"
+                  autoFocus
+                  className="text-input"
+                  disabled={publishState !== "idle"}
+                  id="editor-publish-file-name"
+                  maxLength={MAX_TITLE_LENGTH}
+                  onChange={(event) => {
+                    setPublishFileName(event.currentTarget.value);
+                    setPublishFileNameError("");
+                    setPublishError("");
+                  }}
+                  ref={publishFileNameInputRef}
+                  spellCheck={false}
+                  value={publishFileName}
+                />
+                <p className="editor-publish-file-help" id="editor-publish-file-help">This only names the public link. Your project title stays unchanged.</p>
+                <p className="slug-preview editor-publish-link-preview" id="editor-publish-link-preview"><span>Your link</span> /{publishSlug || "your-file-name"}</p>
+                {publishFileNameError && <p className="form-error editor-publish-file-error" role="alert">{publishFileNameError}</p>}
                 <TurnstileGate onTokenChange={handleTurnstileTokenChange} />
                 {publishError && <p className="form-error" role="alert">{publishError}</p>}
                 {publishState !== "idle" && (
                   <div className="editor-publish-progress" role="status">
                     <span style={{ width: `${Math.max(6, (publishProgress / project.pages.length) * 100)}%` }} />
-                    <p>{publishState === "security" ? "Waiting for a fresh security check…" : publishState === "preparing" ? `Preparing HD page ${publishProgress} of ${project.pages.length}…` : publishState === "uploading" ? `Uploading page ${publishProgress} of ${project.pages.length}…` : "Creating your public link…"}</p>
+                    <p>{publishState === "checking" ? "Checking file-name availability…" : publishState === "security" ? "Waiting for a fresh security check…" : publishState === "preparing" ? `Preparing HD page ${publishProgress} of ${project.pages.length}…` : publishState === "uploading" ? `Uploading page ${publishProgress} of ${project.pages.length}…` : "Creating your public link…"}</p>
                   </div>
                 )}
-                <button className="button button-primary editor-confirm-publish" disabled={publishState !== "idle" || (Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) && !securityCheckReady)} onClick={handlePublish} type="button">Publish HD flipbook</button>
+                <button className="button button-primary editor-confirm-publish" disabled={publishState !== "idle" || (Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) && !securityCheckReady)} type="submit">Publish HD flipbook</button>
                 <button className="editor-publish-cancel" disabled={publishState !== "idle"} onClick={handleClosePublish} type="button">Keep editing</button>
-              </div>
+              </form>
             )}
           </section>
         </div>

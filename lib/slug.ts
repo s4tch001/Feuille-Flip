@@ -2,6 +2,12 @@ const COMBINING_MARKS = /[\u0300-\u036f]/g;
 const APOSTROPHES = /['’`]/g;
 const NON_ALPHANUMERIC = /[^\p{Letter}\p{Number}]+/gu;
 
+export const RESERVED_PUBLIC_SLUGS = new Set([
+  "api",
+  "apple-icon",
+  "create",
+]);
+
 export function slugifyTitle(title: string): string {
   return title
     .normalize("NFKD")
@@ -14,3 +20,6 @@ export function slugifyTitle(title: string): string {
     .replace(/-{2,}/g, "-");
 }
 
+export function isReservedPublicSlug(slug: string): boolean {
+  return RESERVED_PUBLIC_SLUGS.has(slug);
+}

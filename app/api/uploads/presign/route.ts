@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createSupabaseAdmin();
-    const slug = slugifyTitle(parsed.data.title);
+    const slug = slugifyTitle(parsed.data.source === "pages" ? parsed.data.publicFileName : parsed.data.title);
     const { data: existing, error: lookupError } = await supabase
       .from("flipbooks")
       .select("id")
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
     if (lookupError) throw lookupError;
     if (existing) {
-      return apiError(409, "SLUG_TAKEN", "That title is already in use. Try a more specific title.");
+      return apiError(409, "SLUG_TAKEN", "That file name is already in use. Choose another.");
     }
 
     if (parsed.data.source === "pdf") {

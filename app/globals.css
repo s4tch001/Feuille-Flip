@@ -2703,6 +2703,29 @@ svg {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.editor-publish-file-label {
+  margin-top: 0;
+}
+.editor-publish-dialog .text-input[aria-invalid="true"] {
+  border-color: #c74a56;
+  box-shadow: 0 0 0 3px rgba(199, 74, 86, 0.1);
+}
+.editor-publish-dialog .text-input:disabled {
+  background: #f3f2ee;
+  color: var(--ink-soft);
+}
+.editor-publish-file-help {
+  margin: 7px 2px 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.editor-publish-link-preview {
+  margin-bottom: 0;
+}
+.editor-publish-file-error {
+  margin-top: 10px;
+}
 .editor-confirm-publish {
   width: 100%;
   margin-top: 18px;

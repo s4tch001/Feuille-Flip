@@ -109,13 +109,15 @@ follows link expiry within 24 hours and automatically retries partial failures.
 
 ### Editor publish
 
-1. A freshly rendered Turnstile challenge is exchanged immediately for a short-lived security ticket
+1. The user chooses a public file name in the Publish dialog. `/api/uploads/check-name` normalizes it,
+   rejects reserved names, and checks availability without changing the project title.
+2. A freshly rendered Turnstile challenge is exchanged immediately for a short-lived security ticket
    when Turnstile is configured; tokens from prior client-side routes are discarded.
-2. The browser renders every page at a 2,560-pixel long edge and keeps its selected ratio.
-3. `/api/uploads/presign` validates metadata and returns signed WebP upload URLs.
-4. The browser uploads each page directly to the `flipbooks` bucket.
-5. `/api/uploads/complete` verifies page count, sequence, size, MIME metadata, and the signed ticket.
-6. The server inserts the public record and returns its shareable link.
+3. The browser renders every page at a 2,560-pixel long edge and keeps its selected ratio.
+4. `/api/uploads/presign` rechecks the unique public name, validates metadata, and returns signed WebP upload URLs.
+5. The browser uploads each page directly to the `flipbooks` bucket.
+6. `/api/uploads/complete` verifies page count, sequence, size, MIME metadata, and the signed ticket.
+7. The database unique constraint protects the final insert from publishing races, then the server returns the shareable link.
 
 ### PDF publish
 
@@ -201,6 +203,7 @@ npm run start     # Serve the production build locally
 - `/create` — local-first page editor
 - `/[slug]` — public flipbook viewer
 - `/api/uploads/authorize` — Turnstile verification and security-ticket creation
+- `/api/uploads/check-name` — public file-name validation and availability check
 - `/api/uploads/presign` — signed PDF or WebP upload URL creation
 - `/api/uploads/complete` — stored asset validation and public record creation
 - `/robots.txt` — generated crawler rules

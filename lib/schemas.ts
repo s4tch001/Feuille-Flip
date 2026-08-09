@@ -1,14 +1,28 @@
 import { z } from "zod";
 
 import { MAX_PDF_BYTES, MAX_TITLE_LENGTH, MAX_UPLOAD_TICKET_LENGTH, MAX_WEBP_PAGE_BYTES, MAX_WEBP_PAGE_COUNT, MAX_WEBP_TOTAL_BYTES } from "@/lib/constants";
-import { slugifyTitle } from "@/lib/slug";
+import { isReservedPublicSlug, slugifyTitle } from "@/lib/slug";
 
-export const titleSchema = z
+export const displayTitleSchema = z
   .string()
   .trim()
   .min(1, "Title is required.")
-  .max(MAX_TITLE_LENGTH, `Title must be ${MAX_TITLE_LENGTH} characters or fewer.`)
+  .max(MAX_TITLE_LENGTH, `Title must be ${MAX_TITLE_LENGTH} characters or fewer.`);
+
+export const titleSchema = displayTitleSchema
   .refine((title) => slugifyTitle(title).length > 0, "Use at least one letter or number.");
+
+export const publicNameSchema = z
+  .string()
+  .trim()
+  .min(1, "File name is required.")
+  .max(MAX_TITLE_LENGTH, `File name must be ${MAX_TITLE_LENGTH} characters or fewer.`)
+  .refine((name) => slugifyTitle(name).length > 0, "Use at least one letter or number in the file name.")
+  .refine((name) => !isReservedPublicSlug(slugifyTitle(name)), "That file name is reserved. Choose another.");
+
+export const checkPublicNameSchema = z.object({
+  publicFileName: publicNameSchema,
+});
 
 const webpPageSchema = z.object({
   index: z.number().int().min(1).max(MAX_WEBP_PAGE_COUNT),
@@ -20,7 +34,6 @@ export const authorizeUploadSchema = z.object({
 });
 
 const commonPresignFields = {
-  title: titleSchema,
   fileName: z.string().trim().min(1).max(255),
   fileSize: z.number().int().positive().max(MAX_PDF_BYTES),
   mimeType: z.literal("application/pdf"),
@@ -30,11 +43,14 @@ const commonPresignFields = {
 const pdfPresignUploadSchema = z.object({
   ...commonPresignFields,
   source: z.literal("pdf"),
+  title: titleSchema,
 });
 
 const pagePresignUploadSchema = z.object({
   ...commonPresignFields,
   source: z.literal("pages"),
+  title: displayTitleSchema,
+  publicFileName: publicNameSchema,
   pageCount: z.number().int().min(1).max(MAX_WEBP_PAGE_COUNT),
   pageWidth: z.number().int().positive().max(10_000),
   pageHeight: z.number().int().positive().max(10_000),
