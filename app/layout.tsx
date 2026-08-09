@@ -7,13 +7,13 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: { default: "Feuille Flip — Your PDF, made to flip", template: "%s · Feuille Flip" },
-  description: "Turn any PDF into a beautiful, mobile-friendly flipbook and share it with one simple link.",
+  title: { default: "Feuille Flip — Create, flip, and share", template: "%s · Feuille Flip" },
+  description: "Create pages from scratch or turn a PDF into a beautiful, mobile-friendly flipbook with one shareable link.",
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
-    title: "Feuille Flip — Your PDF, made to flip",
-    description: "Upload a PDF. Get a beautiful shareable flipbook. No editor needed.",
+    title: "Feuille Flip — Create, flip, and share",
+    description: "Design pages from scratch or upload a PDF, then publish a beautiful shareable flipbook.",
     url: "/",
     siteName: "Feuille Flip",
   },
