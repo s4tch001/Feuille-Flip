@@ -10,7 +10,7 @@ export const HD_PAGE_LONG_EDGE = 2_560;
 export type CanvasState = {
   version?: string;
   objects: Array<Record<string, unknown>>;
-  background?: string;
+  background?: string | Record<string, unknown>;
   [key: string]: unknown;
 };
 
@@ -51,7 +51,7 @@ export const PAGE_SIZE_PRESETS: PageSize[] = [
 const canvasStateSchema = z.object({
   version: z.string().max(40).optional(),
   objects: z.array(z.record(z.string(), z.unknown())).max(2_000),
-  background: z.string().max(100).optional(),
+  background: z.union([z.string().max(100), z.record(z.string(), z.unknown())]).optional(),
 }).passthrough();
 
 const pageSizeSchema = z.object({

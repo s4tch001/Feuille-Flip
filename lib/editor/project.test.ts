@@ -31,4 +31,15 @@ describe("editor projects", () => {
     const project = createEditorProject("Duplicate pages", PAGE_SIZE_PRESETS[3]);
     expect(() => parseEditorProject({ ...project, pages: [project.pages[0], project.pages[0]] })).toThrow();
   });
+
+  it("keeps serialized gradient page backgrounds", () => {
+    const project = createEditorProject("Gradient", PAGE_SIZE_PRESETS[0]);
+    project.pages[0].canvas.background = {
+      type: "linear",
+      coords: { x1: 0, y1: 0, x2: 794, y2: 1123 },
+      colorStops: [{ offset: 0, color: "#17382d" }, { offset: 1, color: "#7057f5" }],
+    };
+
+    expect(parseEditorProject(project).pages[0].canvas.background).toMatchObject({ type: "linear" });
+  });
 });

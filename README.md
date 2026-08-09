@@ -13,18 +13,28 @@ account.
 `/create` provides a responsive, Canva-style canvas workspace:
 
 - A4, US Letter, 16:9 presentation, square, story, and custom page sizes.
+- Portrait/landscape selection updates each paper preview immediately; square and custom sizes do not
+  show an unnecessary orientation selector.
 - The selected width-to-height ratio is retained by the editor, HD export, publisher, and viewer.
-- Multiple pages with add, duplicate, delete, thumbnails, and a 100-page project limit.
-- Reusable modern cover, editorial, portfolio, and minimal layouts.
-- Text boxes with bundled Montserrat, Playfair Display, Bebas Neue, and Caveat fonts plus common
-  system fonts.
-- Font size, color, bold, italic, underline, alignment, shadow, outline, and opacity controls.
+- Multiple pages with drag-to-reorder, move controls, add, duplicate, delete, live thumbnails, and a
+  100-page project limit.
+- Reusable modern cover, editorial, portfolio, minimal, sports, paper-texture, photo-frame, and bold
+  social layouts. Layout content automatically centers for the selected page size.
+- Font previews and bundled Montserrat, Playfair Display, Bebas Neue, Caveat, Lora, Oswald,
+  Pacifico, Nunito, Raleway, and Roboto Slab fonts plus common system fonts.
+- Font size, transparent/solid/linear-gradient fills, bold, italic, underline, alignment, rotation,
+  and opacity controls.
+- Configurable border color, width, and solid/dashed/dotted style for text, shapes, drawing, and
+  photos.
+- Text outlines with editable color and inside/center/outside placement, plus shadows with editable
+  color, eight directions, distance, blur, and spread.
 - Rectangles, circles, freehand drawing, object alignment, flipping, layer ordering, grouping, and
   multi-selection.
 - Center/edge snapping, rulers, arrow-key nudging, and common undo, redo, duplicate, group, and
   delete keyboard shortcuts.
 - Local JPG, PNG, and WebP photos up to 10 MB and 8,000 pixels per dimension.
-- Photo filters, circle/rounded masks, square crop, flipping, and local light-background cleanup.
+- Photo filters, circle/rounded masks, original/1:1/4:5/16:9 crops, flipping, rotation, and local
+  light-background cleanup.
 - HD PNG export and public WebP publishing at a 2,560-pixel long edge.
 - A responsive mobile style sheet for editing controls on smaller screens.
 
@@ -56,6 +66,8 @@ Publishing an editor project renders its pages locally to HD WebP files, obtains
 upload URLs, uploads the page assets directly to Supabase Storage, validates them on the server, and
 creates a public `/<slug>` link. The success screen supports copy link, native device sharing,
 Facebook, X, LinkedIn, and WhatsApp. The public viewer also provides its wider social sharing menu.
+After a successful publish, the corresponding local IndexedDB draft and recent-project pointer are
+removed from that browser.
 
 PDF publishing follows the same security flow but uploads the original PDF. The server verifies the
 stored size, MIME metadata, signed ticket, and `%PDF-` signature before creating the public record.

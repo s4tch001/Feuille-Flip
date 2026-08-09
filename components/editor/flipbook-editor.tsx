@@ -3,8 +3,10 @@
 import Link from "next/link";
 import {
   type ChangeEvent,
+  type DragEvent,
   type FormEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -30,7 +32,9 @@ import {
   type EditorProject,
   type PageSize,
 } from "@/lib/editor/project";
+import { dataUrlToBlob } from "@/lib/editor/encoding";
 import {
+  deleteEditorProject,
   loadLastEditorProject,
   requestPersistentEditorStorage,
   saveEditorProject,
@@ -44,6 +48,7 @@ type EditorObject = import("fabric").FabricObject;
 type SaveState = "idle" | "saving" | "saved" | "error";
 type PublishState = "idle" | "preparing" | "uploading" | "publishing" | "success";
 type SelectedKind = "none" | "text" | "image" | "multi" | "group" | "object";
+type ShadowDirection = "none" | "top" | "top-right" | "right" | "bottom-right" | "bottom" | "bottom-left" | "left" | "top-left";
 type ApiErrorBody = { error?: { message?: string } };
 type PagePresignResponse = {
   pageUploads: Array<{ index: number; storagePath: string; storageToken: string }>;
@@ -60,6 +65,12 @@ const FONT_CHOICES = [
   "Playfair Display",
   "Bebas Neue",
   "Caveat",
+  "Lora",
+  "Oswald",
+  "Pacifico",
+  "Nunito",
+  "Raleway",
+  "Roboto Slab",
   "Arial",
   "Georgia",
   "Trebuchet MS",
@@ -74,7 +85,26 @@ const TEMPLATE_CHOICES = [
   { id: "editorial", name: "Editorial", detail: "Magazine style" },
   { id: "portfolio", name: "Portfolio", detail: "Image-led" },
   { id: "minimal", name: "Minimal", detail: "Clean story" },
+  { id: "sports", name: "Sports", detail: "High energy" },
+  { id: "paper-texture", name: "Paper texture", detail: "Warm & tactile" },
+  { id: "photo-frame", name: "Photo frames", detail: "Memory wall" },
+  { id: "bold-social", name: "Bold social", detail: "Bright statement" },
 ];
+
+function orientPageSize(pageSize: PageSize, orientation: "portrait" | "landscape"): PageSize {
+  if (pageSize.width === pageSize.height) return pageSize;
+  const landscape = orientation === "landscape";
+  return {
+    ...pageSize,
+    width: landscape ? Math.max(pageSize.width, pageSize.height) : Math.min(pageSize.width, pageSize.height),
+    height: landscape ? Math.min(pageSize.width, pageSize.height) : Math.max(pageSize.width, pageSize.height),
+  };
+}
+
+function getPagePreviewStyle(width: number, height: number) {
+  const scale = Math.min(66 / width, 66 / height);
+  return { width: width * scale, height: height * scale };
+}
 
 function cloneCanvasState(value: CanvasState): CanvasState {
   return structuredClone(value);
@@ -82,6 +112,35 @@ function cloneCanvasState(value: CanvasState): CanvasState {
 
 function canvasStateKey(value: CanvasState): string {
   return JSON.stringify(value);
+}
+
+async function setTextOutlinePosition(
+  object: EditorObject,
+  position: "inside" | "center" | "outside",
+) {
+  object.set("clipPath", undefined);
+  object.set("paintFirst", position === "outside" ? "stroke" : "fill");
+  if (position !== "inside") return;
+
+  const clip = await object.clone();
+  clip.set({
+    left: 0,
+    top: 0,
+    angle: 0,
+    scaleX: 1,
+    scaleY: 1,
+    flipX: false,
+    flipY: false,
+    originX: "center",
+    originY: "center",
+    fill: "#000000",
+    stroke: undefined,
+    strokeWidth: 0,
+    shadow: null,
+    selectable: false,
+    evented: false,
+  });
+  object.set("clipPath", clip);
 }
 
 function downloadDataUrl(dataUrl: string, fileName: string) {
@@ -118,8 +177,12 @@ async function readApiError(response: Response): Promise<string> {
   return body.error?.message ?? "Something went wrong. Please try again.";
 }
 
-async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-  return (await fetch(dataUrl)).blob();
+async function fetchAtStage(url: string, init: RequestInit, stage: string): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error(`${stage} could not reach the server. Check your connection and try again.`);
+  }
 }
 
 async function renderProjectPages(
@@ -137,17 +200,17 @@ async function renderProjectPages(
     const canvas = new fabric.StaticCanvas(element, {
       width: project.pageSize.width,
       height: project.pageSize.height,
-      backgroundColor: page.canvas.background ?? "#ffffff",
+      backgroundColor: "#ffffff",
     });
     try {
       await canvas.loadFromJSON(page.canvas);
-      canvas.backgroundColor = page.canvas.background ?? "#ffffff";
+      if (!canvas.backgroundColor) canvas.backgroundColor = "#ffffff";
       canvas.requestRenderAll();
 
       let blob: Blob | null = null;
       for (const quality of [0.92, 0.86, 0.78, 0.7]) {
         const dataUrl = canvas.toDataURL({ format: "webp", quality, multiplier: hdMultiplier });
-        const candidate = await dataUrlToBlob(dataUrl);
+        const candidate = dataUrlToBlob(dataUrl);
         if (candidate.size <= MAX_WEBP_PAGE_BYTES) {
           blob = candidate;
           break;
@@ -186,6 +249,7 @@ export function FlipbookEditor() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const projectInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const pagePointerDragRef = useRef<{ pageId: string; pointerId: number; startX: number; startY: number; active: boolean; lastTargetId: string } | null>(null);
 
   const [project, setProject] = useState<EditorProject | null>(null);
   const [booting, setBooting] = useState(true);
@@ -199,9 +263,22 @@ export function FlipbookEditor() {
   const [customHeight, setCustomHeight] = useState(1600);
   const [drawMode, setDrawMode] = useState(false);
   const [activeColor, setActiveColor] = useState("#17382d");
+  const [gradientEndColor, setGradientEndColor] = useState("#7057f5");
+  const [gradientDirection, setGradientDirection] = useState<"horizontal" | "vertical" | "diagonal">("diagonal");
   const [activeFont, setActiveFont] = useState("Arial");
   const [fontSize, setFontSize] = useState(48);
   const [objectOpacity, setObjectOpacity] = useState(100);
+  const [objectAngle, setObjectAngle] = useState(0);
+  const [fillTransparent, setFillTransparent] = useState(false);
+  const [borderColor, setBorderColor] = useState("#172038");
+  const [borderWidth, setBorderWidth] = useState(0);
+  const [borderStyle, setBorderStyle] = useState<"none" | "solid" | "dashed" | "dotted">("none");
+  const [shadowColor, setShadowColor] = useState("#000000");
+  const [shadowDirection, setShadowDirection] = useState<ShadowDirection>("bottom-right");
+  const [shadowDistance, setShadowDistance] = useState(8);
+  const [shadowBlur, setShadowBlur] = useState(14);
+  const [shadowSpread, setShadowSpread] = useState(0);
+  const [outlinePosition, setOutlinePosition] = useState<"inside" | "center" | "outside">("center");
   const [selectedKind, setSelectedKind] = useState<SelectedKind>("none");
   const [mobilePropertiesOpen, setMobilePropertiesOpen] = useState(false);
   const [backgroundColor, setBackgroundColor] = useState("#ffffff");
@@ -212,6 +289,7 @@ export function FlipbookEditor() {
   const [publishError, setPublishError] = useState("");
   const [publishedPath, setPublishedPath] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
+  const [draggingPageId, setDraggingPageId] = useState("");
 
   const currentPage = project?.pages.find((page) => page.id === project.activePageId) ?? null;
 
@@ -226,7 +304,7 @@ export function FlipbookEditor() {
 
   const serializeCanvas = useCallback((canvas: EditorCanvas): CanvasState => {
     const serialized = canvas.toJSON() as unknown as CanvasState;
-    serialized.background = typeof canvas.backgroundColor === "string" ? canvas.backgroundColor : "#ffffff";
+    if (!serialized.background) serialized.background = "#ffffff";
     return serialized;
   }, []);
 
@@ -280,10 +358,29 @@ export function FlipbookEditor() {
     else setSelectedKind("object");
 
     setObjectOpacity(Math.round((object.opacity ?? 1) * 100));
-    const objectValues = object as EditorObject & { fontFamily?: string; fontSize?: number; fill?: string };
+    setObjectAngle(Math.round(object.angle ?? 0));
+    const objectValues = object as EditorObject & { fontFamily?: string; fontSize?: number; fill?: string; stroke?: string; strokeDashArray?: number[] | null };
     if (objectValues.fontFamily && FONT_CHOICES.includes(objectValues.fontFamily)) setActiveFont(objectValues.fontFamily);
     if (objectValues.fontSize) setFontSize(Math.round(objectValues.fontSize));
     if (typeof objectValues.fill === "string" && /^#[0-9a-f]{6}$/i.test(objectValues.fill)) setActiveColor(objectValues.fill);
+    setFillTransparent(objectValues.fill === "transparent" || objectValues.fill === "rgba(0,0,0,0)");
+    if (typeof objectValues.stroke === "string" && /^#[0-9a-f]{6}$/i.test(objectValues.stroke)) setBorderColor(objectValues.stroke);
+    const width = Math.round(object.strokeWidth ?? 0);
+    setBorderWidth(width);
+    const dash = objectValues.strokeDashArray;
+    setBorderStyle(width <= 0 || !objectValues.stroke ? "none" : dash?.[0] === 2 ? "dotted" : dash?.length ? "dashed" : "solid");
+    if (object.type?.includes("text")) {
+      setOutlinePosition(object.clipPath ? "inside" : object.paintFirst === "stroke" ? "outside" : "center");
+    }
+    if (object.type?.includes("text") && object.shadow && typeof object.shadow !== "string") {
+      const shadow = object.shadow;
+      if (/^#[0-9a-f]{6}$/i.test(shadow.color)) setShadowColor(shadow.color);
+      setShadowBlur(Math.round(shadow.blur));
+      setShadowDistance(Math.round(Math.max(Math.abs(shadow.offsetX), Math.abs(shadow.offsetY))));
+      const vertical = shadow.offsetY < 0 ? "top" : shadow.offsetY > 0 ? "bottom" : "";
+      const horizontal = shadow.offsetX < 0 ? "left" : shadow.offsetX > 0 ? "right" : "";
+      setShadowDirection((vertical && horizontal ? `${vertical}-${horizontal}` : vertical || horizontal || "bottom-right") as ShadowDirection);
+    }
   }, []);
 
   const snapMovingObject = useCallback((event: { target?: EditorObject }) => {
@@ -313,9 +410,9 @@ export function FlipbookEditor() {
     loadingCanvasRef.current = true;
     try {
       await canvas.loadFromJSON(canvasState);
-      canvas.backgroundColor = canvasState.background ?? "#ffffff";
+      if (!canvas.backgroundColor) canvas.backgroundColor = "#ffffff";
       canvas.requestRenderAll();
-      setBackgroundColor(canvasState.background ?? "#ffffff");
+      setBackgroundColor(typeof canvas.backgroundColor === "string" ? canvas.backgroundColor : "#ffffff");
       if (!historyRef.current[pageId]?.length) historyRef.current[pageId] = [cloneCanvasState(canvasState)];
     } finally {
       loadingCanvasRef.current = false;
@@ -368,7 +465,17 @@ export function FlipbookEditor() {
       canvas.on("object:modified", queueCanvasCommit);
       canvas.on("object:removed", queueCanvasCommit);
       canvas.on("path:created", queueCanvasCommit);
-      canvas.on("text:changed", queueCanvasCommit);
+      canvas.on("text:changed", (event) => {
+        const object = event.target;
+        if (!object?.type?.includes("text") || !object.clipPath) {
+          queueCanvasCommit();
+          return;
+        }
+        void setTextOutlinePosition(object, "inside").then(() => {
+          canvas?.requestRenderAll();
+          queueCanvasCommit();
+        });
+      });
       canvas.on("selection:created", syncSelectionControls);
       canvas.on("selection:updated", syncSelectionControls);
       canvas.on("selection:cleared", syncSelectionControls);
@@ -439,12 +546,11 @@ export function FlipbookEditor() {
     const preset = PAGE_SIZE_PRESETS.find((item) => item.id === presetId);
     const validWidth = Number.isFinite(customWidth) ? Math.min(5_000, Math.max(240, Math.round(customWidth))) : 1_200;
     const validHeight = Number.isFinite(customHeight) ? Math.min(5_000, Math.max(240, Math.round(customHeight))) : 1_600;
-    const base = preset ?? { id: "custom", name: "Custom", width: validWidth, height: validHeight };
-    const wantsLandscape = orientation === "landscape";
-    const width = wantsLandscape ? Math.max(base.width, base.height) : Math.min(base.width, base.height);
-    const height = wantsLandscape ? Math.min(base.width, base.height) : Math.max(base.width, base.height);
-    return { ...base, width, height };
+    if (!preset) return { id: "custom", name: "Custom", width: validWidth, height: validHeight };
+    return orientPageSize(preset, orientation);
   }, [customHeight, customWidth, orientation, presetId]);
+
+  const showOrientationChoice = presetId !== "custom" && chosenSize.width !== chosenSize.height;
 
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -511,6 +617,86 @@ export function FlipbookEditor() {
       activePageId,
       updatedAt: new Date().toISOString(),
     }));
+  }
+
+  function reorderPages(sourcePageId: string, targetPageId: string) {
+    if (!sourcePageId || !targetPageId || sourcePageId === targetPageId) return;
+    updateProject((current) => {
+      const sourceIndex = current.pages.findIndex((page) => page.id === sourcePageId);
+      const targetIndex = current.pages.findIndex((page) => page.id === targetPageId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const pages = [...current.pages];
+      const [moved] = pages.splice(sourceIndex, 1);
+      pages.splice(targetIndex, 0, moved);
+      return { ...current, pages, updatedAt: new Date().toISOString() };
+    });
+  }
+
+  function handlePageDragStart(event: DragEvent<HTMLButtonElement>) {
+    const pageId = event.currentTarget.dataset.page ?? "";
+    setDraggingPageId(pageId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", pageId);
+  }
+
+  function handlePageDragOver(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function handlePageDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    reorderPages(event.dataTransfer.getData("text/plain") || draggingPageId, event.currentTarget.dataset.page ?? "");
+    setDraggingPageId("");
+  }
+
+  function handlePageDragEnd() {
+    setDraggingPageId("");
+  }
+
+  function handlePagePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 || !(event.target instanceof Element) || !event.target.closest(".editor-page-number")) return;
+    const pageId = event.currentTarget.dataset.page ?? "";
+    pagePointerDragRef.current = {
+      pageId,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      lastTargetId: pageId,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePagePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = pagePointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 7) return;
+    drag.active = true;
+    setDraggingPageId(drag.pageId);
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLButtonElement>(".editor-page-card");
+    const targetId = target?.dataset.page ?? "";
+    if (targetId && targetId !== drag.lastTargetId) {
+      reorderPages(drag.pageId, targetId);
+      drag.lastTargetId = targetId;
+    }
+    event.preventDefault();
+  }
+
+  function handlePagePointerEnd(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = pagePointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    pagePointerDragRef.current = null;
+    setDraggingPageId("");
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  function handleMovePage(event: MouseEvent<HTMLButtonElement>) {
+    if (!project) return;
+    const direction = event.currentTarget.dataset.direction === "previous" ? -1 : 1;
+    const index = project.pages.findIndex((page) => page.id === project.activePageId);
+    const target = project.pages[index + direction];
+    if (target) reorderPages(project.activePageId, target.id);
   }
 
   function handleTitleChange(event: ChangeEvent<HTMLInputElement>) {
@@ -616,13 +802,12 @@ export function FlipbookEditor() {
     if (canvas?.freeDrawingBrush) canvas.freeDrawingBrush.color = value;
     if (!canvas || !object) return;
     if (object.type === "path") object.set("stroke", value);
-    else object.set("fill", value);
+    else if (!fillTransparent) object.set("fill", value);
     canvas.requestRenderAll();
     queueCanvasCommit();
   }
 
-  function handleFontChange(event: ChangeEvent<HTMLSelectElement>) {
-    const value = event.currentTarget.value;
+  function applyFont(value: string) {
     setActiveFont(value);
     const canvas = canvasRef.current;
     const object = canvas?.getActiveObject();
@@ -630,6 +815,14 @@ export function FlipbookEditor() {
     object.set("fontFamily", value);
     canvas.requestRenderAll();
     queueCanvasCommit();
+  }
+
+  function handleFontChange(event: ChangeEvent<HTMLSelectElement>) {
+    applyFont(event.currentTarget.value);
+  }
+
+  function handleFontPreview(event: MouseEvent<HTMLButtonElement>) {
+    applyFont(event.currentTarget.dataset.font ?? "Montserrat");
   }
 
   function handleFontSizeChange(event: ChangeEvent<HTMLInputElement>) {
@@ -665,13 +858,85 @@ export function FlipbookEditor() {
     if (!canvas || !fabric || !object || !object.type?.includes("text")) return;
     const effect = event.currentTarget.dataset.effect;
     if (effect === "shadow") {
-      object.set("shadow", object.shadow ? null : new fabric.Shadow({ color: "rgba(0,0,0,0.32)", blur: 14, offsetX: 5, offsetY: 7 }));
+      if (object.shadow) object.set("shadow", null);
+      else applyTextShadow(shadowDirection === "none" ? "bottom-right" : shadowDirection, shadowColor, shadowBlur, shadowDistance, shadowSpread);
     }
     if (effect === "outline") {
-      object.set({ stroke: object.stroke ? undefined : "#ffffff", strokeWidth: object.stroke ? 0 : Math.max(1, fontSize / 24) });
+      if (object.stroke) {
+        object.set({ stroke: undefined, strokeWidth: 0, clipPath: undefined });
+        setBorderStyle("none");
+      } else {
+        const width = Math.max(2, borderWidth || Math.round(fontSize / 24));
+        setBorderWidth(width);
+        setBorderStyle("solid");
+        applyBorder("solid", width, borderColor);
+        void applyOutlinePosition(outlinePosition);
+      }
     }
     canvas.requestRenderAll();
     queueCanvasCommit();
+  }
+
+  function applyTextShadow(direction: ShadowDirection, color: string, blur: number, distance: number, spread: number) {
+    const canvas = canvasRef.current;
+    const fabric = fabricRef.current;
+    const object = canvas?.getActiveObject();
+    if (!canvas || !fabric || !object || !object.type?.includes("text")) return;
+    if (direction === "none") {
+      object.set("shadow", null);
+    } else {
+      const horizontal = direction.includes("right") ? distance : direction.includes("left") ? -distance : 0;
+      const vertical = direction.includes("bottom") ? distance : direction.includes("top") ? -distance : 0;
+      object.set("shadow", new fabric.Shadow({ color, blur: blur + spread * 0.65, offsetX: horizontal, offsetY: vertical }));
+    }
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function handleShadowColorChange(event: ChangeEvent<HTMLInputElement>) {
+    const value = event.currentTarget.value;
+    setShadowColor(value);
+    applyTextShadow(shadowDirection, value, shadowBlur, shadowDistance, shadowSpread);
+  }
+
+  function handleShadowDirectionChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.currentTarget.value as ShadowDirection;
+    setShadowDirection(value);
+    applyTextShadow(value, shadowColor, shadowBlur, shadowDistance, shadowSpread);
+  }
+
+  function handleShadowDistanceChange(event: ChangeEvent<HTMLInputElement>) {
+    const value = Math.min(60, Math.max(0, event.currentTarget.valueAsNumber || 0));
+    setShadowDistance(value);
+    applyTextShadow(shadowDirection, shadowColor, shadowBlur, value, shadowSpread);
+  }
+
+  function handleShadowBlurChange(event: ChangeEvent<HTMLInputElement>) {
+    const value = Math.min(80, Math.max(0, event.currentTarget.valueAsNumber || 0));
+    setShadowBlur(value);
+    applyTextShadow(shadowDirection, shadowColor, value, shadowDistance, shadowSpread);
+  }
+
+  function handleShadowSpreadChange(event: ChangeEvent<HTMLInputElement>) {
+    const value = Math.min(60, Math.max(0, event.currentTarget.valueAsNumber || 0));
+    setShadowSpread(value);
+    applyTextShadow(shadowDirection, shadowColor, shadowBlur, shadowDistance, value);
+  }
+
+  async function applyOutlinePosition(position: "inside" | "center" | "outside") {
+    const canvas = canvasRef.current;
+    const object = canvas?.getActiveObject();
+    if (!canvas || !object || !object.type?.includes("text")) return;
+    await setTextOutlinePosition(object, position);
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function handleOutlinePositionChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.currentTarget.value;
+    const position = value === "inside" || value === "outside" ? value : "center";
+    setOutlinePosition(position);
+    void applyOutlinePosition(position);
   }
 
   function handleOpacityChange(event: ChangeEvent<HTMLInputElement>) {
@@ -681,6 +946,31 @@ export function FlipbookEditor() {
     const object = canvas?.getActiveObject();
     if (!canvas || !object) return;
     object.set("opacity", value / 100);
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function handleRotationChange(event: ChangeEvent<HTMLInputElement>) {
+    const value = Math.min(180, Math.max(-180, event.currentTarget.valueAsNumber || 0));
+    setObjectAngle(value);
+    const canvas = canvasRef.current;
+    const object = canvas?.getActiveObject();
+    if (!canvas || !object) return;
+    object.rotate(value);
+    object.setCoords();
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function handleRotateStep(event: MouseEvent<HTMLButtonElement>) {
+    const canvas = canvasRef.current;
+    const object = canvas?.getActiveObject();
+    if (!canvas || !object) return;
+    const step = event.currentTarget.dataset.rotate === "left" ? -90 : 90;
+    const value = ((object.angle ?? 0) + step + 540) % 360 - 180;
+    object.rotate(value);
+    object.setCoords();
+    setObjectAngle(value);
     canvas.requestRenderAll();
     queueCanvasCommit();
   }
@@ -787,21 +1077,46 @@ export function FlipbookEditor() {
     queueCanvasCommit();
   }
 
-  function handleCropSquare() {
+  function cropSelectedImage(targetRatio: number | null) {
     const canvas = canvasRef.current;
     const fabric = fabricRef.current;
     const active = canvas?.getActiveObject();
     if (!canvas || !fabric || !(active instanceof fabric.FabricImage)) return;
-    const size = Math.min(active.width, active.height);
+    const element = active.getElement() as HTMLImageElement;
+    const sourceWidth = element.naturalWidth || element.width || active.width;
+    const sourceHeight = element.naturalHeight || element.height || active.height;
+    const currentDisplayWidth = active.getScaledWidth();
+    let cropX = 0;
+    let cropY = 0;
+    let width = sourceWidth;
+    let height = sourceHeight;
+    if (targetRatio) {
+      if (sourceWidth / sourceHeight > targetRatio) {
+        width = sourceHeight * targetRatio;
+        cropX = (sourceWidth - width) / 2;
+      } else {
+        height = sourceWidth / targetRatio;
+        cropY = (sourceHeight - height) / 2;
+      }
+    }
     active.set({
-      cropX: Math.max(0, (active.width - size) / 2),
-      cropY: Math.max(0, (active.height - size) / 2),
-      width: size,
-      height: size,
+      cropX,
+      cropY,
+      width,
+      height,
     });
+    active.scaleToWidth(currentDisplayWidth);
     active.setCoords();
     canvas.requestRenderAll();
     queueCanvasCommit();
+  }
+
+  function handleImageCrop(event: MouseEvent<HTMLButtonElement>) {
+    const ratio = event.currentTarget.dataset.crop;
+    if (ratio === "original") cropSelectedImage(null);
+    if (ratio === "square") cropSelectedImage(1);
+    if (ratio === "portrait") cropSelectedImage(4 / 5);
+    if (ratio === "wide") cropSelectedImage(16 / 9);
   }
 
   function handleRemoveLightBackground() {
@@ -844,11 +1159,59 @@ export function FlipbookEditor() {
       canvas.add(new fabric.Textbox("ADD YOUR PHOTO", { left: width * 0.25, top: height * 0.33, width: width * 0.5, fontFamily: "Arial", fontSize: bodySize * 0.72, fontWeight: "bold", textAlign: "center", charSpacing: 120, fill: "#79837c" }));
       canvas.add(new fabric.Textbox(projectValue.title, { left: width * 0.07, top: height * 0.71, width: width * 0.72, fontFamily: "Montserrat", fontSize: titleSize * 0.7, fontWeight: "bold", fill: "#17382d" }));
       canvas.add(new fabric.Textbox("Selected work · 2026", { left: width * 0.07, top: height * 0.86, width: width * 0.7, fontFamily: "Arial", fontSize: bodySize, fill: "#5f6677" }));
-    } else {
+    } else if (template === "minimal") {
       canvas.backgroundColor = "#ffffff";
       canvas.add(new fabric.Textbox(projectValue.title, { left: width * 0.12, top: height * 0.2, width: width * 0.76, fontFamily: "Palatino Linotype", fontSize: titleSize, textAlign: "center", fill: "#172038" }));
       canvas.add(new fabric.Rect({ left: width * 0.42, top: height * 0.52, width: width * 0.16, height: Math.max(3, height * 0.004), fill: "#7057f5" }));
       canvas.add(new fabric.Textbox("Simple ideas, beautifully presented.", { left: width * 0.18, top: height * 0.62, width: width * 0.64, fontFamily: "Caveat", fontSize: bodySize * 1.45, textAlign: "center", fill: "#5f6677" }));
+    } else if (template === "sports") {
+      canvas.backgroundColor = "#0e302a";
+      canvas.add(new fabric.Rect({ left: width * 0.12, top: height * 0.1, width: width * 0.14, height: height * 0.8, angle: -8, fill: "#c9ff3d" }));
+      canvas.add(new fabric.Textbox("GAME\nDAY", { left: width * 0.25, top: height * 0.22, width: width * 0.62, fontFamily: "Bebas Neue", fontSize: titleSize * 1.4, lineHeight: 0.78, textAlign: "center", fill: "#ffffff" }));
+      canvas.add(new fabric.Textbox("HOME  24  —  18  AWAY", { left: width * 0.26, top: height * 0.72, width: width * 0.6, fontFamily: "Oswald", fontSize: bodySize, textAlign: "center", charSpacing: 90, fill: "#c9ff3d" }));
+    } else if (template === "paper-texture") {
+      canvas.backgroundColor = "#efe1c6";
+      for (let index = 0; index < 18; index += 1) {
+        const y = height * (0.08 + index * 0.05);
+        canvas.add(new fabric.Line([width * 0.08, y, width * 0.92, y], { stroke: "#8f7358", strokeWidth: 1, opacity: 0.13, selectable: false, evented: false }));
+      }
+      canvas.add(new fabric.Textbox(projectValue.title, { left: width * 0.12, top: height * 0.24, width: width * 0.76, fontFamily: "Lora", fontSize: titleSize, textAlign: "center", fill: "#4f382b" }));
+      canvas.add(new fabric.Textbox("Notes, stories, and things worth remembering", { left: width * 0.2, top: height * 0.62, width: width * 0.6, fontFamily: "Caveat", fontSize: bodySize * 1.5, textAlign: "center", fill: "#765947" }));
+    } else if (template === "photo-frame") {
+      canvas.backgroundColor = "#e9e2d6";
+      const frameWidth = width * 0.34;
+      const frameHeight = height * 0.34;
+      const frameData = [
+        { left: width * 0.12, top: height * 0.13, angle: -5 },
+        { left: width * 0.54, top: height * 0.18, angle: 5 },
+        { left: width * 0.33, top: height * 0.54, angle: -2 },
+      ];
+      frameData.forEach((frame) => {
+        canvas.add(new fabric.Rect({ ...frame, width: frameWidth, height: frameHeight, fill: "#ffffff", shadow: new fabric.Shadow({ color: "rgba(43,32,20,.2)", blur: 13, offsetX: 3, offsetY: 6 }) }));
+        canvas.add(new fabric.Rect({ left: frame.left + frameWidth * 0.06, top: frame.top + frameHeight * 0.06, angle: frame.angle, width: frameWidth * 0.88, height: frameHeight * 0.72, fill: "#b9c4bf" }));
+      });
+      canvas.add(new fabric.Textbox("DROP PHOTOS INTO THE FRAMES", { left: width * 0.2, top: height * 0.91, width: width * 0.6, fontFamily: "Montserrat", fontSize: bodySize * 0.65, textAlign: "center", charSpacing: 120, fill: "#5d5043" }));
+    } else {
+      canvas.backgroundColor = "#ff6c5c";
+      canvas.add(new fabric.Circle({ left: width * 0.1, top: height * 0.12, radius: Math.min(width, height) * 0.17, fill: "#ffd96a" }));
+      canvas.add(new fabric.Circle({ left: width * 0.7, top: height * 0.66, radius: Math.min(width, height) * 0.12, fill: "#7057f5" }));
+      canvas.add(new fabric.Textbox(projectValue.title.toUpperCase(), { left: width * 0.12, top: height * 0.3, width: width * 0.76, fontFamily: "Oswald", fontSize: titleSize * 1.08, textAlign: "center", fill: "#172038" }));
+      canvas.add(new fabric.Textbox("MAKE IT UNMISSABLE", { left: width * 0.2, top: height * 0.62, width: width * 0.6, fontFamily: "Raleway", fontSize: bodySize, fontWeight: "bold", textAlign: "center", charSpacing: 160, fill: "#ffffff" }));
+    }
+
+    const objects = canvas.getObjects();
+    if (objects.length) {
+      const bounds = objects.map((object) => object.getBoundingRect());
+      const left = Math.min(...bounds.map((bound) => bound.left));
+      const top = Math.min(...bounds.map((bound) => bound.top));
+      const right = Math.max(...bounds.map((bound) => bound.left + bound.width));
+      const bottom = Math.max(...bounds.map((bound) => bound.top + bound.height));
+      const offsetX = width / 2 - (left + right) / 2;
+      const offsetY = height / 2 - (top + bottom) / 2;
+      objects.forEach((object) => {
+        object.set({ left: (object.left ?? 0) + offsetX, top: (object.top ?? 0) + offsetY });
+        object.setCoords();
+      });
     }
     canvas.discardActiveObject();
     canvas.requestRenderAll();
@@ -864,6 +1227,111 @@ export function FlipbookEditor() {
     canvas.backgroundColor = value;
     canvas.requestRenderAll();
     queueCanvasCommit();
+  }
+
+  function createGradient(width: number, height: number) {
+    const fabric = fabricRef.current;
+    if (!fabric) return null;
+    const coords = gradientDirection === "horizontal"
+      ? { x1: 0, y1: 0, x2: width, y2: 0 }
+      : gradientDirection === "vertical"
+        ? { x1: 0, y1: 0, x2: 0, y2: height }
+        : { x1: 0, y1: 0, x2: width, y2: height };
+    return new fabric.Gradient({
+      type: "linear",
+      gradientUnits: "pixels",
+      coords,
+      colorStops: [
+        { offset: 0, color: activeColor },
+        { offset: 1, color: gradientEndColor },
+      ],
+    });
+  }
+
+  function handleGradientEndChange(event: ChangeEvent<HTMLInputElement>) {
+    setGradientEndColor(event.currentTarget.value);
+  }
+
+  function handleGradientDirection(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.currentTarget.value;
+    setGradientDirection(value === "horizontal" || value === "vertical" ? value : "diagonal");
+  }
+
+  function handleApplyObjectGradient() {
+    const canvas = canvasRef.current;
+    const object = canvas?.getActiveObject();
+    if (!canvas || !object) return;
+    const gradient = createGradient(Math.max(1, object.width), Math.max(1, object.height));
+    if (!gradient) return;
+    if (object.type === "path" || object.type === "line") object.set("stroke", gradient);
+    else {
+      object.set("fill", gradient);
+      setFillTransparent(false);
+    }
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function handleApplyPageGradient() {
+    const canvas = canvasRef.current;
+    const projectValue = projectRef.current;
+    if (!canvas || !projectValue) return;
+    const gradient = createGradient(projectValue.pageSize.width, projectValue.pageSize.height);
+    if (!gradient) return;
+    canvas.backgroundColor = gradient;
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function handleFillTransparency(event: ChangeEvent<HTMLInputElement>) {
+    const transparent = event.currentTarget.checked;
+    setFillTransparent(transparent);
+    const canvas = canvasRef.current;
+    const object = canvas?.getActiveObject();
+    if (!canvas || !object) return;
+    object.set("fill", transparent ? "transparent" : activeColor);
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function applyBorder(style: "none" | "solid" | "dashed" | "dotted", width: number, color: string) {
+    const canvas = canvasRef.current;
+    const object = canvas?.getActiveObject();
+    if (!canvas || !object) return;
+    const effectiveWidth = style === "none" ? 0 : Math.max(1, width);
+    object.set({
+      stroke: style === "none" ? undefined : color,
+      strokeWidth: effectiveWidth,
+      strokeDashArray: style === "dashed" ? [12, 8] : style === "dotted" ? [2, 8] : null,
+      strokeLineCap: style === "dotted" ? "round" : "butt",
+      strokeUniform: true,
+    });
+    object.setCoords();
+    canvas.requestRenderAll();
+    queueCanvasCommit();
+  }
+
+  function handleBorderColorChange(event: ChangeEvent<HTMLInputElement>) {
+    const value = event.currentTarget.value;
+    setBorderColor(value);
+    applyBorder(borderStyle, borderWidth, value);
+  }
+
+  function handleBorderWidthChange(event: ChangeEvent<HTMLInputElement>) {
+    const value = Math.min(40, Math.max(0, event.currentTarget.valueAsNumber || 0));
+    setBorderWidth(value);
+    const nextStyle = value === 0 ? "none" : borderStyle === "none" ? "solid" : borderStyle;
+    setBorderStyle(nextStyle);
+    applyBorder(nextStyle, value, borderColor);
+  }
+
+  function handleBorderStyleChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.currentTarget.value;
+    const style = value === "solid" || value === "dashed" || value === "dotted" ? value : "none";
+    const width = style === "none" ? borderWidth : Math.max(1, borderWidth || 3);
+    setBorderStyle(style);
+    if (style !== "none") setBorderWidth(width);
+    applyBorder(style, width, borderColor);
   }
 
   function handleDeleteObject() {
@@ -920,9 +1388,23 @@ export function FlipbookEditor() {
   async function applyHistoryState(state: CanvasState) {
     const pageId = activePageIdRef.current;
     await loadCanvasState(state, pageId);
+    const canvas = canvasRef.current;
+    const projectValue = projectRef.current;
+    let thumbnail: string | undefined;
+    if (canvas && projectValue) {
+      try {
+        thumbnail = canvas.toDataURL({
+          format: "webp",
+          quality: 0.64,
+          multiplier: Math.min(0.24, 240 / projectValue.pageSize.width),
+        });
+      } catch {
+        thumbnail = undefined;
+      }
+    }
     updateProject((current) => ({
       ...current,
-      pages: current.pages.map((page) => page.id === pageId ? { ...page, canvas: cloneCanvasState(state) } : page),
+      pages: current.pages.map((page) => page.id === pageId ? { ...page, canvas: cloneCanvasState(state), thumbnail } : page),
       updatedAt: new Date().toISOString(),
     }));
   }
@@ -1017,6 +1499,13 @@ export function FlipbookEditor() {
   function handleClosePublish() {
     if (publishState === "preparing" || publishState === "uploading" || publishState === "publishing") return;
     setPublishOpen(false);
+    if (publishState === "success") {
+      setProject(null);
+      projectRef.current = null;
+      activePageIdRef.current = "";
+      historyRef.current = {};
+      futureRef.current = {};
+    }
   }
 
   async function handlePublish() {
@@ -1045,16 +1534,16 @@ export function FlipbookEditor() {
 
       let securityTicket: string | undefined;
       if (turnstileSiteKey) {
-        const authorizeResponse = await fetch("/api/uploads/authorize", {
+        const authorizeResponse = await fetchAtStage("/api/uploads/authorize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ turnstileToken: securityToken }),
-        });
+        }, "The security check");
         if (!authorizeResponse.ok) throw new Error(await readApiError(authorizeResponse));
         securityTicket = (await authorizeResponse.json() as AuthorizeResponse).securityTicket;
       }
 
-      const presignResponse = await fetch("/api/uploads/presign", {
+      const presignResponse = await fetchAtStage("/api/uploads/presign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1069,7 +1558,7 @@ export function FlipbookEditor() {
           pages: rendered.blobs.map((blob, index) => ({ index: index + 1, fileSize: blob.size })),
           securityTicket,
         }),
-      });
+      }, "Publishing setup");
       if (!presignResponse.ok) throw new Error(await readApiError(presignResponse));
       const upload = await presignResponse.json() as PagePresignResponse;
 
@@ -1089,13 +1578,14 @@ export function FlipbookEditor() {
       }
 
       setPublishState("publishing");
-      const completeResponse = await fetch("/api/uploads/complete", {
+      const completeResponse = await fetchAtStage("/api/uploads/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticket: upload.ticket }),
-      });
+      }, "Final publishing");
       if (!completeResponse.ok) throw new Error(await readApiError(completeResponse));
       const published = await completeResponse.json() as CompleteResponse;
+      await deleteEditorProject(latestProject.id);
       window.feuilleResetTurnstile?.();
       setPublishedPath(published.url);
       setPublishState("success");
@@ -1167,26 +1657,29 @@ export function FlipbookEditor() {
             <input maxLength={80} onChange={(event) => setTitle(event.currentTarget.value)} value={title} />
           </label>
           <div className="editor-size-grid" aria-label="Page size presets">
-            {PAGE_SIZE_PRESETS.map((size) => (
-              <button
-                className={presetId === size.id ? "editor-size-choice is-active" : "editor-size-choice"}
-                data-preset={size.id}
-                key={size.id}
-                onClick={handlePreset}
-                type="button"
-              >
-                <span className="editor-size-ratio" style={{ aspectRatio: `${size.width} / ${size.height}` }} />
-                <strong>{size.name}</strong>
-                <small>{size.width} × {size.height}</small>
-              </button>
-            ))}
+            {PAGE_SIZE_PRESETS.map((size) => {
+              const displaySize = orientPageSize(size, orientation);
+              return (
+                <button
+                  className={presetId === size.id ? "editor-size-choice is-active" : "editor-size-choice"}
+                  data-preset={size.id}
+                  key={size.id}
+                  onClick={handlePreset}
+                  type="button"
+                >
+                  <span className="editor-size-ratio" style={getPagePreviewStyle(displaySize.width, displaySize.height)} />
+                  <strong>{size.name}</strong>
+                  <small>{displaySize.width} × {displaySize.height}</small>
+                </button>
+              );
+            })}
             <button
               className={presetId === "custom" ? "editor-size-choice is-active" : "editor-size-choice"}
               data-preset="custom"
               onClick={handlePreset}
               type="button"
             >
-              <span className="editor-size-ratio editor-size-custom">+</span>
+              <span className="editor-size-ratio editor-size-custom" style={getPagePreviewStyle(customWidth || 1_200, customHeight || 1_600)}>+</span>
               <strong>Custom</strong>
               <small>Your dimensions</small>
             </button>
@@ -1197,10 +1690,12 @@ export function FlipbookEditor() {
               <label>Height <input max={5000} min={240} onChange={(event) => setCustomHeight(event.currentTarget.valueAsNumber)} type="number" value={customHeight} /></label>
             </div>
           )}
-          <div className="editor-orientation" aria-label="Orientation">
-            <button className={orientation === "portrait" ? "is-active" : ""} data-orientation="portrait" onClick={handleOrientation} type="button">Portrait</button>
-            <button className={orientation === "landscape" ? "is-active" : ""} data-orientation="landscape" onClick={handleOrientation} type="button">Landscape</button>
-          </div>
+          {showOrientationChoice && (
+            <div className="editor-orientation" aria-label="Orientation">
+              <button className={orientation === "portrait" ? "is-active" : ""} data-orientation="portrait" onClick={handleOrientation} type="button">Portrait</button>
+              <button className={orientation === "landscape" ? "is-active" : ""} data-orientation="landscape" onClick={handleOrientation} type="button">Landscape</button>
+            </div>
+          )}
           <div className="editor-setup-summary">
             <span>{chosenSize.width} × {chosenSize.height}px</span>
             <span>Ratio {chosenSize.width}:{chosenSize.height}</span>
@@ -1236,13 +1731,23 @@ export function FlipbookEditor() {
           <div className="editor-page-list">
             {project.pages.map((page, index) => (
               <button
-                className={page.id === project.activePageId ? "editor-page-card is-active" : "editor-page-card"}
+                className={`${page.id === project.activePageId ? "editor-page-card is-active" : "editor-page-card"}${page.id === draggingPageId ? " is-dragging" : ""}`}
                 data-page={page.id}
+                draggable
                 key={page.id}
                 onClick={handlePageSelection}
+                onDragEnd={handlePageDragEnd}
+                onDragOver={handlePageDragOver}
+                onDragStart={handlePageDragStart}
+                onDrop={handlePageDrop}
+                onPointerCancel={handlePagePointerEnd}
+                onPointerDown={handlePagePointerDown}
+                onPointerMove={handlePagePointerMove}
+                onPointerUp={handlePagePointerEnd}
+                title={`Page ${index + 1} · Drag to reorder`}
                 type="button"
               >
-                <span className="editor-page-number">{index + 1}</span>
+                <span className="editor-page-number"><i aria-hidden="true">⋮⋮</i>{index + 1}</span>
                 <span className="editor-page-thumb" style={{ aspectRatio: `${project.pageSize.width} / ${project.pageSize.height}` }}>
                   {/* eslint-disable-next-line @next/next/no-img-element -- local data URLs cannot use the Next image optimizer */}
                   {page.thumbnail ? <img alt="" src={page.thumbnail} /> : <span />}
@@ -1254,6 +1759,8 @@ export function FlipbookEditor() {
           <div className="editor-page-actions">
             <button onClick={handleDuplicatePage} type="button">Duplicate</button>
             <button disabled={project.pages.length === 1} onClick={handleDeletePage} type="button">Delete</button>
+            <button data-direction="previous" disabled={project.pages[0]?.id === project.activePageId} onClick={handleMovePage} type="button">Move up</button>
+            <button data-direction="next" disabled={project.pages.at(-1)?.id === project.activePageId} onClick={handleMovePage} type="button">Move down</button>
           </div>
         </aside>
 
@@ -1266,8 +1773,8 @@ export function FlipbookEditor() {
             <button onClick={handleChooseImage} type="button">Photo</button>
             <label className="editor-font-picker">
               <span className="sr-only">Text font</span>
-              <select aria-label="Text font" onChange={handleFontChange} value={activeFont}>
-                {FONT_CHOICES.map((font) => <option key={font} value={font}>{font}</option>)}
+              <select aria-label="Text font" onChange={handleFontChange} style={{ fontFamily: activeFont }} value={activeFont}>
+                {FONT_CHOICES.map((font) => <option key={font} style={{ fontFamily: font }} value={font}>{font}</option>)}
               </select>
             </label>
             <span className="editor-toolbar-separator" />
@@ -1308,9 +1815,59 @@ export function FlipbookEditor() {
           </div>
           <label className="editor-color-control"><span>Object / brush</span><input onChange={handleColorChange} type="color" value={activeColor} /></label>
           <label className="editor-color-control"><span>Page background</span><input onChange={handleBackgroundChange} type="color" value={backgroundColor} /></label>
+          <div className="editor-property-group editor-gradient-controls">
+            <span>Photoshop-style gradient</span>
+            <div className="editor-gradient-colors">
+              <label>Start <input onChange={handleColorChange} type="color" value={activeColor} /></label>
+              <i aria-hidden="true" style={{ background: `linear-gradient(90deg, ${activeColor}, ${gradientEndColor})` }} />
+              <label>End <input onChange={handleGradientEndChange} type="color" value={gradientEndColor} /></label>
+            </div>
+            <select aria-label="Gradient direction" onChange={handleGradientDirection} value={gradientDirection}>
+              <option value="horizontal">Horizontal</option>
+              <option value="vertical">Vertical</option>
+              <option value="diagonal">Diagonal</option>
+            </select>
+            <div className="editor-compact-actions editor-two-actions">
+              <button disabled={selectedKind === "none"} onClick={handleApplyObjectGradient} type="button">Apply to object</button>
+              <button onClick={handleApplyPageGradient} type="button">Apply to page</button>
+            </div>
+          </div>
+          {(selectedKind === "text" || selectedKind === "image" || selectedKind === "object") && (
+            <div className="editor-property-group editor-fill-border-controls">
+              <span>Fill &amp; border</span>
+              {selectedKind !== "image" && (
+                <>
+                  <label className="editor-color-control"><span>Fill color</span><input disabled={fillTransparent} onChange={handleColorChange} type="color" value={activeColor} /></label>
+                  <label className="editor-check-control"><input checked={fillTransparent} onChange={handleFillTransparency} type="checkbox" /> Transparent fill</label>
+                </>
+              )}
+              <label className="editor-color-control"><span>Border color</span><input disabled={borderStyle === "none"} onChange={handleBorderColorChange} type="color" value={borderColor} /></label>
+              <label className="editor-range-control">Border width <strong>{borderWidth}px</strong><input max={40} min={0} onChange={handleBorderWidthChange} type="range" value={borderWidth} /></label>
+              <select aria-label="Border style" onChange={handleBorderStyleChange} value={borderStyle}>
+                <option value="none">No border</option>
+                <option value="solid">Solid border</option>
+                <option value="dashed">Dashed border</option>
+                <option value="dotted">Dotted border</option>
+              </select>
+            </div>
+          )}
           {selectedKind === "text" && (
             <div className="editor-property-group">
               <span>Typography</span>
+              <div aria-label="Font previews" className="editor-font-preview-list" role="listbox">
+                {FONT_CHOICES.map((font) => (
+                  <button
+                    aria-selected={activeFont === font}
+                    className={activeFont === font ? "is-active" : ""}
+                    data-font={font}
+                    key={font}
+                    onClick={handleFontPreview}
+                    role="option"
+                    style={{ fontFamily: font }}
+                    type="button"
+                  >{font}</button>
+                ))}
+              </div>
               <label className="editor-number-control">Font size <input max={400} min={8} onChange={handleFontSizeChange} type="number" value={fontSize} /></label>
               <div className="editor-compact-actions">
                 <button data-text-style="bold" onClick={handleTextStyle} type="button"><b>B</b></button>
@@ -1324,12 +1881,43 @@ export function FlipbookEditor() {
                 <button data-effect="shadow" onClick={handleTextEffect} type="button">Shadow</button>
                 <button data-effect="outline" onClick={handleTextEffect} type="button">Outline</button>
               </div>
+              <div className="editor-outline-controls">
+                <label className="editor-color-control"><span>Outline color</span><input onChange={handleBorderColorChange} type="color" value={borderColor} /></label>
+                <select aria-label="Outline position" onChange={handleOutlinePositionChange} value={outlinePosition}>
+                  <option value="outside">Outside outline</option>
+                  <option value="center">Centered outline</option>
+                  <option value="inside">Inside outline</option>
+                </select>
+                <label className="editor-range-control">Outline width <strong>{borderWidth}px</strong><input max={40} min={0} onChange={handleBorderWidthChange} type="range" value={borderWidth} /></label>
+              </div>
+              <div className="editor-shadow-controls">
+                <label className="editor-color-control"><span>Shadow color</span><input onChange={handleShadowColorChange} type="color" value={shadowColor} /></label>
+                <select aria-label="Shadow direction" onChange={handleShadowDirectionChange} value={shadowDirection}>
+                  <option value="none">No shadow</option>
+                  <option value="top">Top</option>
+                  <option value="top-right">Top right</option>
+                  <option value="right">Right</option>
+                  <option value="bottom-right">Bottom right</option>
+                  <option value="bottom">Bottom</option>
+                  <option value="bottom-left">Bottom left</option>
+                  <option value="left">Left</option>
+                  <option value="top-left">Top left</option>
+                </select>
+                <label className="editor-range-control">Distance <strong>{shadowDistance}px</strong><input max={60} min={0} onChange={handleShadowDistanceChange} type="range" value={shadowDistance} /></label>
+                <label className="editor-range-control">Blur <strong>{shadowBlur}px</strong><input max={80} min={0} onChange={handleShadowBlurChange} type="range" value={shadowBlur} /></label>
+                <label className="editor-range-control">Spread <strong>{shadowSpread}px</strong><input max={60} min={0} onChange={handleShadowSpreadChange} type="range" value={shadowSpread} /></label>
+              </div>
             </div>
           )}
           {selectedKind !== "none" && (
             <div className="editor-property-group">
               <span>Position &amp; transparency</span>
               <label className="editor-range-control">Opacity <strong>{objectOpacity}%</strong><input max={100} min={5} onChange={handleOpacityChange} type="range" value={objectOpacity} /></label>
+              <label className="editor-range-control">Rotation <strong>{objectAngle}°</strong><input max={180} min={-180} onChange={handleRotationChange} type="range" value={objectAngle} /></label>
+              <div className="editor-compact-actions editor-two-actions">
+                <button data-rotate="left" onClick={handleRotateStep} type="button">Rotate −90°</button>
+                <button data-rotate="right" onClick={handleRotateStep} type="button">Rotate +90°</button>
+              </div>
               <div className="editor-compact-actions">
                 <button data-align="left" onClick={handleAlignObject} type="button">Left</button>
                 <button data-align="center" onClick={handleAlignObject} type="button">Center</button>
@@ -1361,7 +1949,12 @@ export function FlipbookEditor() {
                 <button data-mask="circle" onClick={handleImageMask} type="button">Circle</button>
                 <button data-mask="rounded" onClick={handleImageMask} type="button">Rounded</button>
               </div>
-              <button onClick={handleCropSquare} type="button">Center crop square</button>
+              <div className="editor-filter-grid editor-crop-grid">
+                <button data-crop="original" onClick={handleImageCrop} type="button">Original</button>
+                <button data-crop="square" onClick={handleImageCrop} type="button">1:1 crop</button>
+                <button data-crop="portrait" onClick={handleImageCrop} type="button">4:5 crop</button>
+                <button data-crop="wide" onClick={handleImageCrop} type="button">16:9 crop</button>
+              </div>
               <button onClick={handleRemoveLightBackground} type="button">Remove light background</button>
               <small className="editor-tool-hint">Background cleanup is local and works best on solid white or near-white backgrounds.</small>
             </div>

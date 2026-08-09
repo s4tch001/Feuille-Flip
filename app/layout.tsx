@@ -2,8 +2,14 @@ import type { Metadata, Viewport } from "next";
 
 import "@fontsource/bebas-neue/400.css";
 import "@fontsource/caveat/400.css";
+import "@fontsource/lora/400.css";
 import "@fontsource/montserrat/400.css";
+import "@fontsource/nunito/400.css";
+import "@fontsource/oswald/400.css";
+import "@fontsource/pacifico/400.css";
 import "@fontsource/playfair-display/400.css";
+import "@fontsource/raleway/400.css";
+import "@fontsource/roboto-slab/400.css";
 
 import { TurnstileScript } from "@/components/turnstile-script";
 import "./globals.css";
