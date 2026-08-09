@@ -222,7 +222,7 @@ export function UploadDialog() {
               <span className="success-check">✓</span>
               <p className="eyebrow">Your flipbook is live</p>
               <h2 id="upload-dialog-title">Ready to be shared.</h2>
-              <p className="muted">Anyone with this public link can open your flipbook.</p>
+              <p className="muted">Anyone with this public link can open your flipbook for 3 months. The link and uploaded PDF are then deleted automatically.</p>
               <div className="published-link">
                 <span>{absoluteUrl}</span>
                 <button type="button" onClick={copyLink}><CopyIcon /> {copied ? "Copied" : "Copy"}</button>
@@ -290,7 +290,7 @@ export function UploadDialog() {
               <button className="button button-primary submit-upload" type="submit" disabled={state !== "idle"}>
                 {state === "preparing" ? "Checking PDF…" : state === "uploading" ? "Uploading PDF…" : state === "publishing" ? "Publishing flipbook…" : <>Create flipbook <ArrowRightIcon /></>}
               </button>
-              <p className="privacy-note">Your flipbook will be public to anyone with the link.</p>
+              <p className="privacy-note">Your flipbook is public to anyone with the link for 3 months. The link and uploaded PDF are then deleted automatically.</p>
             </form>
           )}
         </div>

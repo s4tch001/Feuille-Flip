@@ -44,6 +44,10 @@ type FlipEvent = {
   data: number;
 };
 
+type FlipStateEvent = {
+  data: "user_fold" | "fold_corner" | "flipping" | "read";
+};
+
 type BookSize = {
   width: number;
   height: number;
@@ -96,6 +100,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [mobilePress, setMobilePress] = useState<"previous" | "next" | null>(null);
+  const [isTurning, setIsTurning] = useState(false);
 
   const bookPages = useMemo<BookPage[]>(() => {
     const pages: BookPage[] = pageUrls?.length
@@ -416,6 +421,10 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     setBookPose(getBookPose(currentBookPageRef.current, totalPages));
   }, [setBookPose]);
 
+  const handleChangeState = useCallback((event: FlipStateEvent) => {
+    setIsTurning(event.data !== "read");
+  }, [setIsTurning]);
+
   function turn(direction: "previous" | "next") {
     const pageFlip = flipbookRef.current?.pageFlip();
     if (direction === "previous") pageFlip?.flipPrev("bottom");
@@ -466,7 +475,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
         {pageCount > 0 && bookSize && (
-          <div className={`book-stage book-stage--${bookPose}${mobilePress ? ` book-stage--press-${mobilePress}` : ""}`}>
+          <div className={`book-stage book-stage--${bookPose}${isTurning ? " book-stage--turning" : ""}${mobilePress ? ` book-stage--press-${mobilePress}` : ""}`}>
             <span className="book-gutter" aria-hidden="true" />
             <HTMLFlipBook
               key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
@@ -486,7 +495,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
               singlePage={bookSize.singlePage}
               startZIndex={1}
               autoSize={true}
-              maxShadowOpacity={0.52}
+              maxShadowOpacity={0.4}
               showCover={true}
               mobileScrollSupport={!bookSize.singlePage}
               clickEventForward={true}
@@ -495,6 +504,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
               showPageCorners={true}
               disableFlipByClick={false}
               renderOnlyPageLengthChange={true}
+              onChangeState={handleChangeState}
               onFlip={handleFlip}
               onInit={handleInit}
             >

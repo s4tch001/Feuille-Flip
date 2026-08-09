@@ -1,5 +1,7 @@
 "use client";
 
+import { faFacebookF, faLinkedinIn, faWhatsapp, faXTwitter } from "@fortawesome/free-brands-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import Link from "next/link";
 import {
   type ChangeEvent,
@@ -2102,13 +2104,13 @@ export function FlipbookEditor() {
                 <span className="editor-success-check">✓</span>
                 <p className="eyebrow">Your flipbook is live</p>
                 <h2 id="editor-publish-title">Ready to share.</h2>
-                <p>Anyone with this public link can view the HD flipbook.</p>
+                <p>Anyone with this public link can view the HD flipbook for 3 months. The link and its uploaded files are then deleted automatically.</p>
                 <div className="editor-published-link"><span>{publishedUrl}</span><button onClick={handleCopyPublishedLink} type="button">{linkCopied ? "Copied" : "Copy"}</button></div>
                 <div className="editor-social-links" aria-label="Share to social media">
-                  <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(publishedUrl)}`} rel="noreferrer" target="_blank">Facebook</a>
-                  <a href={`https://x.com/intent/post?url=${encodeURIComponent(publishedUrl)}&text=${encodeURIComponent(project.title)}`} rel="noreferrer" target="_blank">X</a>
-                  <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(publishedUrl)}`} rel="noreferrer" target="_blank">LinkedIn</a>
-                  <a href={`https://wa.me/?text=${encodeURIComponent(`${project.title} ${publishedUrl}`)}`} rel="noreferrer" target="_blank">WhatsApp</a>
+                  <a aria-label="Share on Facebook" className="share-facebook" href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(publishedUrl)}`} rel="noreferrer" target="_blank" title="Facebook"><FontAwesomeIcon icon={faFacebookF} /></a>
+                  <a aria-label="Share on X" className="share-x" href={`https://x.com/intent/post?url=${encodeURIComponent(publishedUrl)}&text=${encodeURIComponent(project.title)}`} rel="noreferrer" target="_blank" title="X"><FontAwesomeIcon icon={faXTwitter} /></a>
+                  <a aria-label="Share on LinkedIn" className="share-linkedin" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(publishedUrl)}`} rel="noreferrer" target="_blank" title="LinkedIn"><FontAwesomeIcon icon={faLinkedinIn} /></a>
+                  <a aria-label="Share on WhatsApp" className="share-whatsapp" href={`https://wa.me/?text=${encodeURIComponent(`${project.title} ${publishedUrl}`)}`} rel="noreferrer" target="_blank" title="WhatsApp"><FontAwesomeIcon icon={faWhatsapp} /></a>
                 </div>
                 <a className="button button-primary" href={publishedPath}>Open flipbook</a>
                 <button className="button button-secondary" onClick={handleNativeShare} type="button">Share from device</button>
@@ -2117,7 +2119,7 @@ export function FlipbookEditor() {
               <div>
                 <p className="eyebrow">Publish flipbook</p>
                 <h2 id="editor-publish-title">Make “{project.title}” public?</h2>
-                <p className="editor-publish-copy">Your draft stays local. Only the HD page images are uploaded after you confirm.</p>
+                <p className="editor-publish-copy">Your draft stays local. Only the HD page images are uploaded after you confirm. The public link and uploaded files expire after 3 months.</p>
                 <dl className="editor-publish-summary">
                   <div><dt>Pages</dt><dd>{project.pages.length}</dd></div>
                   <div><dt>Ratio</dt><dd>{project.pageSize.width}:{project.pageSize.height}</dd></div>

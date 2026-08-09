@@ -1,6 +1,7 @@
 import "server-only";
 
 import { FLIPBOOK_BUCKET } from "@/lib/constants";
+import { isFlipbookExpired } from "@/lib/flipbook-retention";
 import { createSupabaseAdmin } from "@/lib/supabase/server";
 import { cache } from "react";
 
@@ -35,7 +36,7 @@ export const getFlipbookBySlug = cache(async (slug: string): Promise<Flipbook | 
     .maybeSingle<FlipbookRow>();
 
   if (error) throw new Error("Could not load this flipbook.");
-  if (!data) return null;
+  if (!data || isFlipbookExpired(data.created_at)) return null;
 
   const pdfUrl = data.storage_path
     ? supabase.storage.from(FLIPBOOK_BUCKET).getPublicUrl(data.storage_path).data.publicUrl
@@ -63,5 +64,7 @@ export async function getRecentFlipbookSlugs(): Promise<Array<{ slug: string; cr
     .limit(1000);
 
   if (error) return [];
-  return (data ?? []).map((row) => ({ slug: row.slug, createdAt: row.created_at }));
+  return (data ?? [])
+    .filter((row) => !isFlipbookExpired(row.created_at))
+    .map((row) => ({ slug: row.slug, createdAt: row.created_at }));
 }

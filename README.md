@@ -75,6 +75,14 @@ removed from that browser.
 PDF publishing follows the same security flow but uploads the original PDF. The server verifies the
 stored size, MIME metadata, signed ticket, and `%PDF-` signature before creating the public record.
 
+Every published flipbook is available for exactly three calendar months from its `created_at`
+timestamp. For example, a flipbook published on July 15, 2026 expires on October 15, 2026 at the
+same UTC time. Month-end dates clamp to the target month's last day (January 31 expires April 30).
+The dynamic viewer and sitemap exclude a flipbook at the exact expiry boundary. The existing
+Netlify scheduled function removes its Storage objects first and then its database row on the next
+run, without relying on the creator's browser. It runs once daily, so physical cleanup normally
+follows link expiry within 24 hours and automatically retries partial failures.
+
 ## Technology
 
 - **Next.js 16** App Router and TypeScript
@@ -131,6 +139,7 @@ stored size, MIME metadata, signed ticket, and `%PDF-` signature before creating
 | Published WebP page | 2 MB |
 | Published WebP total | 25 MB |
 | Editor publish resolution | 2,560 px long edge |
+| Published flipbook retention | 3 calendar months |
 
 ## Local development
 
@@ -214,12 +223,16 @@ Turnstile widget success only means the browser minted a token; publishing succe
 server validates that token. The authorize route records sanitized Cloudflare error codes in server
 logs and distinguishes a deployment-key problem from an expired or duplicate user challenge.
 
-The scheduled `netlify/functions/keep-supabase-awake.mts` function runs three times daily and makes a
-small health query. It is only an operational workaround for inactivity-related pauses.
+The scheduled `netlify/functions/keep-supabase-awake.mts` function runs once daily at 01:00 UTC. Its
+retention scan is also the small health query that helps avoid inactivity-related pauses, so cleanup
+does not require another scheduled invocation or a user visit. Keep this function enabled on the
+published Netlify deployment.
 
 ## Important notes
 
 - The app has no accounts. Anyone with a published link can open that public flipbook.
+- Published links stop resolving exactly three calendar months after publication. Storage and
+  database deletion follow automatically on the next scheduled cleanup run.
 - Never publish confidential or sensitive documents; published assets are public by design.
 - Existing low-resolution WebP pages cannot regain missing detail. Republish the original PDF to use
   adaptive high-density rendering.

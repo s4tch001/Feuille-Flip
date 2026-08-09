@@ -6,6 +6,10 @@ import { getFlipbookBySlug } from "@/lib/flipbooks";
 
 type PageProps = { params: Promise<{ slug: string }> };
 
+// Retention is checked against the current time on every request. Never serve a
+// cached viewer after its three-calendar-month publication window has ended.
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const flipbook = await getFlipbookBySlug(slug).catch(() => null);

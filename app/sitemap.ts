@@ -2,6 +2,8 @@ import type { MetadataRoute } from "next";
 
 import { getRecentFlipbookSlugs } from "@/lib/flipbooks";
 
+export const dynamic = "force-dynamic";
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
   const flipbooks = await getRecentFlipbookSlugs().catch(() => []);

@@ -32,7 +32,7 @@ export default function HomePage() {
             <UploadTrigger className="button button-secondary" />
           </div>
           <TurnstileGate />
-          <p className="hero-note"><span>✓</span> No account needed <i /> <span>✓</span> Drafts stay on your device <i /> <span>✓</span> Mobile ready</p>
+          <p className="hero-note"><span>✓</span> No account needed <i /> <span>✓</span> Drafts stay on your device <i /> <span>✓</span> Public links last 3 months</p>
         </div>
 
         <figure className="hero-art">
@@ -94,7 +94,7 @@ export default function HomePage() {
           <div className="steps-grid">
             <article><span className="step-icon"><SparkIcon /></span><small>01</small><h3>Choose how to start</h3><p>Create your pages in the editor or upload a PDF that is already finished.</p></article>
             <article><span className="step-icon"><FileIcon /></span><small>02</small><h3>Make it yours</h3><p>Keep the size and layout you chose, add a title, and preview the result.</p></article>
-            <article><span className="step-icon"><ShareIcon /></span><small>03</small><h3>Publish and share</h3><p>Get your own public link and share it directly to your favorite platforms.</p></article>
+            <article><span className="step-icon"><ShareIcon /></span><small>03</small><h3>Publish and share</h3><p>Get a public link for 3 months. After that, the link and uploaded files are removed automatically.</p></article>
           </div>
           <div className="bottom-cta">
             <div><span>Ready when you are.</span><h2>Make your first flipbook your way.</h2></div>
