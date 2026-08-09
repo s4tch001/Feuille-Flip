@@ -27,7 +27,10 @@ type PageFlipApi = {
   getFlipController: () => {
     getCalculation: () => { getDirection: () => number } | null;
   };
-  getPage: (page: number) => { setDensity: (density: "soft" | "hard") => void };
+  getPage: (page: number) => {
+    setDensity: (density: "soft" | "hard") => void;
+    setDrawingDensity: (density: "soft" | "hard") => void;
+  };
   getPageCollection: () => {
     getCurrentSpreadIndex: () => number;
     getSpread: () => number[][];
@@ -418,6 +421,12 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     const pageFlip = flipbookRef.current?.pageFlip();
     if (!pageFlip) return;
     const totalPages = pageFlip.getPageCount();
+    for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
+      const page = pageFlip.getPage(pageIndex);
+      page.setDensity("soft");
+      page.setDrawingDensity("soft");
+    }
+    pageFlip.update();
     setBookPose(getBookPose(currentBookPageRef.current, totalPages));
   }, [setBookPose]);
 
@@ -476,7 +485,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={currentPage <= 1} aria-label="Previous page"><ChevronLeftIcon /></button>
         {pageCount > 0 && bookSize && (
           <div className={`book-stage book-stage--${bookPose}${isTurning ? " book-stage--turning" : ""}${mobilePress ? ` book-stage--press-${mobilePress}` : ""}`}>
-            <span className="book-gutter" aria-hidden="true" />
             <HTMLFlipBook
               key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
               ref={flipbookRef}
@@ -489,13 +497,13 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
               minHeight={bookSize.height}
               maxHeight={bookSize.height}
               startPage={currentBookPage}
-              drawShadow={true}
+              drawShadow={false}
               flippingTime={760}
               usePortrait={false}
               singlePage={bookSize.singlePage}
               startZIndex={1}
               autoSize={true}
-              maxShadowOpacity={0.4}
+              maxShadowOpacity={0}
               showCover={true}
               mobileScrollSupport={!bookSize.singlePage}
               clickEventForward={true}

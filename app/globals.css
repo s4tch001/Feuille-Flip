@@ -1305,10 +1305,6 @@ svg {
     28px 28px;
 }
 .book-stage {
-  --book-depth-left: 0.5%;
-  --book-depth-right: 0.5%;
-  --book-shadow-left: 2.5%;
-  --book-shadow-right: 2.5%;
   position: relative;
   place-self: center;
   display: inline-block;
@@ -1317,116 +1313,6 @@ svg {
   transform: translate3d(0, 0, 0);
   transition: transform 760ms cubic-bezier(0.22, 0.72, 0.22, 1);
 }
-.book-stage::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  top: 2px;
-  bottom: -6px;
-  left: var(--book-depth-left);
-  right: var(--book-depth-right);
-  border: 1px solid rgba(41, 35, 27, 0.22);
-  border-radius: 3px 3px 7px 7px;
-  background:
-    linear-gradient(
-      90deg,
-      rgba(38, 31, 23, 0.07),
-      transparent 4%,
-      transparent 96%,
-      rgba(38, 31, 23, 0.04)
-    ),
-    linear-gradient(180deg, #fbfaf6, #f1ede3);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.65),
-    0 4px 5px rgba(5, 6, 12, 0.34),
-    0 12px 17px -8px rgba(2, 3, 9, 0.78);
-  pointer-events: none;
-  transition:
-    left 760ms cubic-bezier(0.22, 0.72, 0.22, 1),
-    right 760ms cubic-bezier(0.22, 0.72, 0.22, 1);
-}
-.book-stage::after {
-  content: '';
-  position: absolute;
-  z-index: -2;
-  left: var(--book-shadow-left);
-  right: var(--book-shadow-right);
-  bottom: -47px;
-  height: 62px;
-  border-radius: 50%;
-  background: radial-gradient(
-    ellipse at 50% 4%,
-    rgba(3, 4, 10, 0.68) 0,
-    rgba(4, 5, 12, 0.42) 34%,
-    rgba(5, 7, 15, 0.17) 57%,
-    transparent 76%
-  );
-  filter: blur(6px);
-  opacity: 0.84;
-  transform: scaleY(0.74);
-  transform-origin: top center;
-  pointer-events: none;
-  transition:
-    left 760ms cubic-bezier(0.22, 0.72, 0.22, 1),
-    right 760ms cubic-bezier(0.22, 0.72, 0.22, 1),
-    opacity 0.25s ease;
-}
-.book-stage--front {
-  --book-depth-left: 50.4%;
-  --book-depth-right: 0.4%;
-  --book-shadow-left: 51.5%;
-  --book-shadow-right: 1.5%;
-}
-.book-stage--back {
-  --book-depth-left: 0.4%;
-  --book-depth-right: 50.4%;
-  --book-shadow-left: 1.5%;
-  --book-shadow-right: 51.5%;
-}
-.book-stage--turning {
-  --book-shadow-left: 1.5%;
-  --book-shadow-right: 1.5%;
-}
-.book-stage--turning::after {
-  filter: blur(8px);
-  opacity: 0.72;
-  transform: scaleY(0.8);
-}
-.book-stage--turning .stf__hardShadow,
-.book-stage--turning .stf__hardInnerShadow {
-  opacity: 0 !important;
-}
-.book-stage--turning .stf__item.--hard.--right {
-  filter: drop-shadow(-9px 10px 7px rgba(2, 3, 9, 0.26));
-}
-.book-stage--turning .stf__item.--hard.--left {
-  filter: drop-shadow(9px 10px 7px rgba(2, 3, 9, 0.26));
-}
-.book-gutter {
-  position: absolute;
-  top: 1px;
-  bottom: 2px;
-  left: 50%;
-  z-index: 3;
-  width: 20px;
-  opacity: 0;
-  transform: translateX(-50%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(25, 20, 15, 0.08) 22%,
-    rgba(18, 14, 11, 0.4) 46%,
-    rgba(255, 255, 255, 0.22) 51%,
-    rgba(27, 21, 16, 0.13) 66%,
-    transparent
-  );
-  filter: blur(0.35px);
-  pointer-events: none;
-  transition: opacity 0.22s ease;
-}
-.book-stage--open .book-gutter {
-  opacity: 0.78;
-}
 .flipbook {
   position: relative;
   z-index: 2;
@@ -1434,67 +1320,34 @@ svg {
 }
 .pdf-page {
   position: relative;
-  background: #fdfcf9;
+  background: transparent;
   overflow: hidden;
   border-radius: 2px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -2px 2px -1px rgba(33, 27, 20, 0.2),
-    inset 0 0 0 1px rgba(56, 45, 31, 0.085),
-    0 2px 4px rgba(5, 7, 14, 0.14);
+  box-shadow: none;
 }
 .pdf-page.--left {
   border-radius: 4px 1px 2px 5px;
-  box-shadow:
-    inset -12px 0 16px -13px rgba(20, 16, 12, 0.78),
-    inset 1px 0 2px rgba(255, 255, 255, 0.62),
-    inset 0 -2px 2px -1px rgba(33, 27, 20, 0.18),
-    inset 0 0 0 1px rgba(56, 45, 31, 0.075),
-    0 2px 4px rgba(5, 7, 14, 0.14);
+  box-shadow: none;
 }
 .pdf-page.--right {
   border-radius: 1px 4px 5px 2px;
-  box-shadow:
-    inset 12px 0 16px -13px rgba(20, 16, 12, 0.78),
-    inset -1px 0 2px rgba(255, 255, 255, 0.62),
-    inset 0 -2px 2px -1px rgba(33, 27, 20, 0.18),
-    inset 0 0 0 1px rgba(56, 45, 31, 0.075),
-    0 2px 4px rgba(5, 7, 14, 0.14);
+  box-shadow: none;
 }
 .pdf-page-front,
 .pdf-page-back {
   position: absolute;
   inset: 0;
+  background: transparent;
 }
 .pdf-page-front {
   z-index: 1;
-}
-.pdf-page-front::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  z-index: 3;
-  width: 6%;
-  opacity: 0;
-  pointer-events: none;
-}
-.pdf-page.--left .pdf-page-front::after {
-  right: 0;
-  opacity: 1;
-  background: linear-gradient(270deg, rgba(24, 19, 14, 0.075), transparent);
-}
-.pdf-page.--right .pdf-page-front::after {
-  left: 0;
-  opacity: 1;
-  background: linear-gradient(90deg, rgba(24, 19, 14, 0.075), transparent);
 }
 .pdf-page canvas,
 .pdf-page img {
   display: block;
   width: 100%;
   height: 100%;
-  background: #fff;
+  background: transparent;
   opacity: 0;
   transition: opacity 0.18s ease;
   user-select: none;
@@ -1613,6 +1466,10 @@ svg {
   opacity: 0;
 }
 .pdf-page-blank::before {
+  display: none;
+}
+.book-stage--turning .pdf-page::before,
+.book-stage--turning .pdf-page::after {
   display: none;
 }
 @keyframes page-shimmer {
@@ -1779,43 +1636,14 @@ svg {
 }
 
 @media (max-width: 1023px) {
-  .book-stage,
-  .book-stage--front,
-  .book-stage--open,
-  .book-stage--back {
-    --book-depth-left: 0.5%;
-    --book-depth-right: 0.5%;
-    --book-shadow-left: 2.5%;
-    --book-shadow-right: 2.5%;
-  }
-  .book-stage::before {
-    bottom: -4px;
-  }
-  .book-stage::after {
-    bottom: -31px;
-    height: 42px;
-    filter: blur(5px);
-    opacity: 0.74;
-  }
-  .book-gutter {
-    display: none;
-  }
   .reader-stage .flipbook {
     touch-action: none;
   }
   .book-stage--press-previous .pdf-page {
-    box-shadow:
-      inset 12px 0 18px -16px rgba(0, 0, 0, 0.8),
-      inset 0 -2px 2px -1px rgba(33, 27, 20, 0.18),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.16),
-      0 2px 4px rgba(5, 7, 14, 0.14);
+    box-shadow: none;
   }
   .book-stage--press-next .pdf-page {
-    box-shadow:
-      inset -12px 0 18px -16px rgba(0, 0, 0, 0.8),
-      inset 0 -2px 2px -1px rgba(33, 27, 20, 0.18),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.16),
-      0 2px 4px rgba(5, 7, 14, 0.14);
+    box-shadow: none;
   }
   .reader-heading {
     gap: 8px;
