@@ -8,6 +8,7 @@ import { Brand } from "@/components/brand";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIcon } from "@/components/icons";
 import {
   createViewerPageOrder,
+  getViewerBookPose,
   resolveViewerInitPageIndex,
 } from "@/lib/viewer-page-order";
 
@@ -94,7 +95,7 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     bookSize?.singlePage ? "single" : "spread",
   ).map((pdfPage) => (
     pdfPage === null
-      ? { key: "blank-endpaper", pdfPage: null }
+      ? { key: "blank-white-page", pdfPage: null }
       : {
         key: `${pageUrls?.length ? "webp" : "pdf"}-${pdfPage}`,
         pdfPage,
@@ -106,13 +107,14 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   const activeBookPage = mappedBookPage >= 0
     ? mappedBookPage
     : Math.max(0, Math.min(currentBookPage, bookPages.length - 1));
+  const bookPose = getViewerBookPose(activeBookPage, bookPages.length);
 
   const pageElements = useMemo(() => bookPages.map((bookPage) => (
     <div
       className={`pdf-page${bookPage.pdfPage === null ? " pdf-page-blank" : ""}`}
       data-density={bookPage.pdfPage === 1 || bookPage.pdfPage === pageCount ? "hard" : "soft"}
       key={bookPage.key}
-      aria-label={bookPage.pdfPage === null ? "Blank endpaper" : undefined}
+      aria-label={bookPage.pdfPage === null ? "Blank page" : undefined}
     >
       <div className="pdf-page-front">
         {bookPage.pdfPage !== null && (
@@ -376,29 +378,31 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={activeBookPage <= 0} aria-label="Previous page"><ChevronLeftIcon /></button>
         {pageCount > 0 && bookSize && (
-          <HTMLFlipBook
-            key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
-            ref={flipbookRef}
-            className="flipbook"
-            width={bookSize.width}
-            height={bookSize.height}
-            size="fixed"
-            minWidth={bookSize.width}
-            maxWidth={bookSize.width}
-            minHeight={bookSize.height}
-            maxHeight={bookSize.height}
-            startPage={activeBookPage}
-            drawShadow={false}
-            usePortrait={false}
-            singlePage={bookSize.singlePage}
-            maxShadowOpacity={0}
-            showCover={true}
-            renderOnlyPageLengthChange={true}
-            onFlip={handleFlip}
-            onInit={handleInit}
-          >
-            {pageElements}
-          </HTMLFlipBook>
+          <div className={`book-stage book-stage--${bookPose}`}>
+            <HTMLFlipBook
+              key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
+              ref={flipbookRef}
+              className="flipbook"
+              width={bookSize.width}
+              height={bookSize.height}
+              size="fixed"
+              minWidth={bookSize.width}
+              maxWidth={bookSize.width}
+              minHeight={bookSize.height}
+              maxHeight={bookSize.height}
+              startPage={activeBookPage}
+              drawShadow={false}
+              usePortrait={false}
+              singlePage={bookSize.singlePage}
+              maxShadowOpacity={0}
+              showCover={true}
+              renderOnlyPageLengthChange={true}
+              onFlip={handleFlip}
+              onInit={handleInit}
+            >
+              {pageElements}
+            </HTMLFlipBook>
+          </div>
         )}
         <button className="page-arrow page-arrow-right" type="button" onClick={() => turn("next")} disabled={activeBookPage >= bookPages.length - 1} aria-label="Next page"><ChevronRightIcon /></button>
       </section>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createViewerPageOrder,
+  getViewerBookPose,
   resolveViewerInitPageIndex,
   resolveViewerPageIndex,
 } from "@/lib/viewer-page-order";
@@ -12,7 +13,7 @@ describe("viewer page order", () => {
     expect(createViewerPageOrder(4)).toEqual([1, 2, 3, 4]);
   });
 
-  it("places an invisible endpaper before an odd final cover", () => {
+  it("places a white blank page before an odd final cover in spread mode", () => {
     expect(createViewerPageOrder(3)).toEqual([1, 2, null, 3]);
     expect(createViewerPageOrder(5)).toEqual([1, 2, 3, 4, null, 5]);
   });
@@ -46,5 +47,12 @@ describe("viewer page order", () => {
     expect(createViewerPageOrder(1)).toEqual([1]);
     expect(createViewerPageOrder(0)).toEqual([]);
     expect(createViewerPageOrder(2.5)).toEqual([]);
+  });
+
+  it("centers the closed front, open spread, and closed back poses", () => {
+    expect(getViewerBookPose(0, 6)).toBe("front");
+    expect(getViewerBookPose(2, 6)).toBe("open");
+    expect(getViewerBookPose(5, 6)).toBe("back");
+    expect(getViewerBookPose(0, 1)).toBe("front");
   });
 });

@@ -1304,6 +1304,12 @@ svg {
     28px 28px,
     28px 28px;
 }
+.book-stage {
+  position: relative;
+  place-self: center;
+  display: inline-block;
+  line-height: 0;
+}
 .flipbook {
   position: relative;
   z-index: 2;
@@ -1460,6 +1466,14 @@ svg {
 .pdf-page-blank::before {
   display: none;
 }
+.pdf-page-blank,
+.pdf-page-blank .pdf-page-front,
+.pdf-page-blank .pdf-page-back {
+  background: #fff;
+}
+.pdf-page-blank::after {
+  opacity: 0;
+}
 @keyframes page-shimmer {
   to {
     background-position: -200% 0;
@@ -1614,6 +1628,15 @@ svg {
   }
   .page-arrow {
     display: grid;
+  }
+}
+
+@media (min-width: 1024px) {
+  .book-stage--front {
+    transform: translateX(-25%);
+  }
+  .book-stage--back {
+    transform: translateX(25%);
   }
 }
 
