@@ -1304,18 +1304,10 @@ svg {
     28px 28px,
     28px 28px;
 }
-.book-stage {
-  position: relative;
-  place-self: center;
-  display: inline-block;
-  line-height: 0;
-  isolation: isolate;
-  transform: translate3d(0, 0, 0);
-  transition: transform 760ms cubic-bezier(0.22, 0.72, 0.22, 1);
-}
 .flipbook {
   position: relative;
   z-index: 2;
+  place-self: center;
   margin: 0;
 }
 .pdf-page {
@@ -1468,10 +1460,6 @@ svg {
 .pdf-page-blank::before {
   display: none;
 }
-.book-stage--turning .pdf-page::before,
-.book-stage--turning .pdf-page::after {
-  display: none;
-}
 @keyframes page-shimmer {
   to {
     background-position: -200% 0;
@@ -1595,12 +1583,6 @@ svg {
 }
 
 @media (min-width: 768px) {
-  .book-stage--front {
-    transform: translate3d(-25%, 0, 0);
-  }
-  .book-stage--back {
-    transform: translate3d(25%, 0, 0);
-  }
   .reader-shell {
     grid-template-rows: calc(54px + env(safe-area-inset-top, 0px)) minmax(
         0,
@@ -1636,15 +1618,6 @@ svg {
 }
 
 @media (max-width: 1023px) {
-  .reader-stage .flipbook {
-    touch-action: none;
-  }
-  .book-stage--press-previous .pdf-page {
-    box-shadow: none;
-  }
-  .book-stage--press-next .pdf-page {
-    box-shadow: none;
-  }
   .reader-heading {
     gap: 8px;
   }

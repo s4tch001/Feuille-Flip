@@ -1,5 +1,4 @@
 export type ViewerPageNumber = number | null;
-export type ViewerTurnDirection = "previous" | "next";
 export type ViewerPageLayout = "single" | "spread";
 
 /**
@@ -16,17 +15,6 @@ export function createViewerPageOrder(
   const pages: ViewerPageNumber[] = Array.from({ length: pageCount }, (_, index) => index + 1);
   if (layout === "spread" && pageCount > 1 && pageCount % 2 === 1) pages.splice(pages.length - 1, 0, null);
   return pages;
-}
-
-export function canTurnViewerSpread(
-  direction: ViewerTurnDirection,
-  currentSpreadIndex: number,
-  spreadCount: number,
-): boolean {
-  if (!Number.isSafeInteger(currentSpreadIndex) || !Number.isSafeInteger(spreadCount) || spreadCount < 1) return false;
-  return direction === "previous"
-    ? currentSpreadIndex > 0
-    : currentSpreadIndex < spreadCount - 1;
 }
 
 /** Keep the requested logical page when a responsive remount selects its spread. */

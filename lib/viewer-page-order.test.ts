@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  canTurnViewerSpread,
   createViewerPageOrder,
   resolveViewerInitPageIndex,
   resolveViewerPageIndex,
@@ -47,12 +46,5 @@ describe("viewer page order", () => {
     expect(createViewerPageOrder(1)).toEqual([1]);
     expect(createViewerPageOrder(0)).toEqual([]);
     expect(createViewerPageOrder(2.5)).toEqual([]);
-  });
-
-  it("blocks outward turns at the first and last spreads", () => {
-    expect(canTurnViewerSpread("previous", 0, 4)).toBe(false);
-    expect(canTurnViewerSpread("next", 0, 4)).toBe(true);
-    expect(canTurnViewerSpread("previous", 3, 4)).toBe(true);
-    expect(canTurnViewerSpread("next", 3, 4)).toBe(false);
   });
 });

@@ -7,10 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Brand } from "@/components/brand";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MaximizeIcon, ShareIcon } from "@/components/icons";
 import {
-  canTurnViewerSpread,
   createViewerPageOrder,
   resolveViewerInitPageIndex,
-  type ViewerTurnDirection,
 } from "@/lib/viewer-page-order";
 
 type FlipbookViewerProps = {
@@ -27,19 +25,10 @@ type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist"))["getDocument
 type PageFlipApi = {
   flipNext: (corner?: "top" | "bottom") => void;
   flipPrev: (corner?: "top" | "bottom") => void;
-  startUserTouch: (position: { x: number; y: number }) => void;
-  userMove: (position: { x: number; y: number }, isTouch: boolean) => void;
-  userStop: (position: { x: number; y: number }, isSwipe?: boolean) => void;
-  getFlipController: () => {
-    getCalculation: () => { getDirection: () => number } | null;
-  };
-  getPage: (page: number) => { setDensity: (density: "soft" | "hard") => void };
   getPageCollection: () => {
     getCurrentSpreadIndex: () => number;
     getSpread: () => number[][];
   };
-  getPageCount: () => number;
-  update: () => void;
 };
 
 type FlipbookRef = {
@@ -48,10 +37,6 @@ type FlipbookRef = {
 
 type FlipEvent = {
   data: number;
-};
-
-type FlipStateEvent = {
-  data: "user_fold" | "fold_corner" | "flipping" | "read";
 };
 
 type FlipInitEvent = {
@@ -67,28 +52,11 @@ type BookSize = {
   singlePage: boolean;
 };
 
-type BookPose = "front" | "open" | "back";
-
 type BookPage = {
   key: string;
   pdfPage: number | null;
   imageUrl?: string;
 };
-
-function getBookPose(page: number, totalPages: number): BookPose {
-  if (page <= 0) return "front";
-  if (page >= totalPages - 1) return "back";
-  return "open";
-}
-
-function canTurnPageFlip(pageFlip: PageFlipApi, direction: ViewerTurnDirection): boolean {
-  const collection = pageFlip.getPageCollection();
-  return canTurnViewerSpread(
-    direction,
-    collection.getCurrentSpreadIndex(),
-    collection.getSpread().length,
-  );
-}
 
 function calculateBookSize(container: HTMLElement, pageRatio: number): BookSize {
   const singlePage = window.matchMedia("(max-width: 1023px)").matches;
@@ -115,14 +83,11 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   const [pageRatio, setPageRatio] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [currentBookPage, setCurrentBookPage] = useState(0);
-  const [bookPose, setBookPose] = useState<BookPose>("front");
   const [pageCount, setPageCount] = useState(0);
   const [status, setStatus] = useState("Opening your flipbook…");
   const [error, setError] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [mobilePress, setMobilePress] = useState<"previous" | "next" | null>(null);
-  const [isTurning, setIsTurning] = useState(false);
 
   const bookPages = useMemo<BookPage[]>(() => createViewerPageOrder(
     pageCount,
@@ -235,7 +200,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
           currentBookPageRef.current = 0;
           setCurrentPage(1);
           setCurrentBookPage(0);
-          setBookPose("front");
           setPageRatio(pageWidth / pageHeight);
           setPageCount(pageUrls.length);
           setStatus("");
@@ -260,7 +224,6 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         currentBookPageRef.current = 0;
         setCurrentPage(1);
         setCurrentBookPage(0);
-        setBookPose("front");
         setPageRatio(firstViewport.width / firstViewport.height);
         setPageCount(pdf.numPages);
         setStatus("Preparing pages…");
@@ -326,179 +289,13 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
   useEffect(() => {
     function handleKeys(event: KeyboardEvent) {
       const pageFlip = flipbookRef.current?.pageFlip();
-      if (event.key === "ArrowLeft" && pageFlip && canTurnPageFlip(pageFlip, "previous")) pageFlip.flipPrev("bottom");
-      if (event.key === "ArrowRight" && pageFlip && canTurnPageFlip(pageFlip, "next")) pageFlip.flipNext("bottom");
+      if (event.key === "ArrowLeft") pageFlip?.flipPrev("bottom");
+      if (event.key === "ArrowRight") pageFlip?.flipNext("bottom");
       if (event.key === "Escape") setShareOpen(false);
     }
     window.addEventListener("keydown", handleKeys);
     return () => window.removeEventListener("keydown", handleKeys);
   }, []);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    let validMouseDrag = false;
-
-    function shouldBlockEndpointTurn(clientX: number, target: EventTarget | null) {
-      if (!(target instanceof Element)) return false;
-      const book = target.closest(".flipbook");
-      const pageFlip = flipbookRef.current?.pageFlip();
-      if (!book || !pageFlip) return false;
-      const collection = pageFlip.getPageCollection();
-      const spreadIndex = collection.getCurrentSpreadIndex();
-      const spreadCount = collection.getSpread().length;
-      const isFirstSpread = spreadIndex === 0;
-      const isLastSpread = spreadIndex === spreadCount - 1;
-      const endpointPage = target.closest(".pdf-page") ?? book.querySelector(
-        isFirstSpread ? ".pdf-page.--right" : isLastSpread ? ".pdf-page.--left" : ".pdf-page",
-      );
-      if (endpointPage && (isFirstSpread || isLastSpread)) {
-        const pageRect = endpointPage.getBoundingClientRect();
-        if (pageRect.width > 0) {
-          const pageCenter = pageRect.left + pageRect.width / 2;
-          if ((isFirstSpread && clientX < pageCenter) || (isLastSpread && clientX > pageCenter)) return true;
-        }
-      }
-      const rect = book.getBoundingClientRect();
-      const direction: ViewerTurnDirection = clientX < rect.left + rect.width / 2 ? "previous" : "next";
-      return !canTurnPageFlip(pageFlip, direction);
-    }
-
-    function blockInvalidMouseTurn(event: MouseEvent) {
-      if (event.type === "mousemove" && validMouseDrag && event.buttons !== 0) return;
-      if (event.type === "mousemove" && event.buttons === 0) validMouseDrag = false;
-      if (!shouldBlockEndpointTurn(event.clientX, event.target)) {
-        if (
-          event.type === "mousedown" &&
-          event.target instanceof Element &&
-          event.target.closest(".flipbook")
-        ) validMouseDrag = true;
-        return;
-      }
-      validMouseDrag = false;
-      event.preventDefault();
-      event.stopPropagation();
-    }
-
-    function endMouseTurn() {
-      validMouseDrag = false;
-    }
-
-    function blockInvalidTouchTurn(event: TouchEvent) {
-      const touch = event.changedTouches[0];
-      if (!touch || !shouldBlockEndpointTurn(touch.clientX, event.target)) return;
-      if (event.cancelable) event.preventDefault();
-      event.stopPropagation();
-    }
-
-    stage.addEventListener("mousedown", blockInvalidMouseTurn, { capture: true });
-    stage.addEventListener("mousemove", blockInvalidMouseTurn, { capture: true });
-    stage.addEventListener("touchstart", blockInvalidTouchTurn, { capture: true, passive: false });
-    window.addEventListener("mouseup", endMouseTurn, { capture: true });
-    return () => {
-      stage.removeEventListener("mousedown", blockInvalidMouseTurn, { capture: true });
-      stage.removeEventListener("mousemove", blockInvalidMouseTurn, { capture: true });
-      stage.removeEventListener("touchstart", blockInvalidTouchTurn, { capture: true });
-      window.removeEventListener("mouseup", endMouseTurn, { capture: true });
-    };
-  }, []);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || !bookSize?.singlePage) return;
-    let press: { direction: "previous" | "next"; rect: DOMRect; origin: { x: number; y: number }; active: boolean; timer: number } | null = null;
-
-    function isFlipbookTouch(event: TouchEvent) {
-      return event.target instanceof Element && event.target.closest(".flipbook");
-    }
-
-    function startEdgePress(event: TouchEvent) {
-      if (!isFlipbookTouch(event) || event.changedTouches.length === 0) return;
-      const touch = event.changedTouches[0];
-      const book = (event.target as Element).closest(".flipbook");
-      if (!book) return;
-
-      const rect = book.getBoundingClientRect();
-      const edgeWidth = Math.min(rect.width * 0.28, 104);
-      const direction = touch.clientX <= rect.left + edgeWidth
-        ? "previous"
-        : touch.clientX >= rect.right - edgeWidth
-          ? "next"
-          : null;
-      if (!direction) return;
-      const pageFlip = flipbookRef.current?.pageFlip();
-      if (!pageFlip || !canTurnPageFlip(pageFlip, direction)) return;
-
-      const origin = {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top,
-      };
-      press = {
-        direction,
-        rect,
-        origin,
-        active: false,
-        timer: window.setTimeout(() => {
-          if (!press) return;
-          press.active = true;
-          flipbookRef.current?.pageFlip()?.startUserTouch(press.origin);
-        }, 140),
-      };
-      setMobilePress(direction);
-      if (event.cancelable) event.preventDefault();
-      event.stopPropagation();
-    }
-
-    function holdEdgePress(event: TouchEvent) {
-      if (!press || event.changedTouches.length === 0) return;
-      const touch = event.changedTouches[0];
-      if (press.active) {
-        flipbookRef.current?.pageFlip()?.userMove({
-          x: touch.clientX - press.rect.left,
-          y: touch.clientY - press.rect.top,
-        }, true);
-      }
-      if (event.cancelable) event.preventDefault();
-      event.stopPropagation();
-    }
-
-    function releaseEdgePress(event: TouchEvent) {
-      const activePress = press;
-      press = null;
-      setMobilePress(null);
-      if (!activePress || event.changedTouches.length === 0) return;
-      window.clearTimeout(activePress.timer);
-      const touch = event.changedTouches[0];
-      event.stopPropagation();
-      if (event.cancelable) event.preventDefault();
-      if (activePress.active) {
-        flipbookRef.current?.pageFlip()?.userStop({
-          x: touch.clientX - activePress.rect.left,
-          y: touch.clientY - activePress.rect.top,
-        });
-      }
-    }
-
-    function cancelEdgePress() {
-      if (press) {
-        window.clearTimeout(press.timer);
-        if (press.active) flipbookRef.current?.pageFlip()?.userStop({ x: press.rect.width / 2, y: press.rect.height / 2 });
-      }
-      press = null;
-      setMobilePress(null);
-    }
-
-    stage.addEventListener("touchstart", startEdgePress, { capture: true, passive: false });
-    stage.addEventListener("touchmove", holdEdgePress, { capture: true, passive: false });
-    stage.addEventListener("touchend", releaseEdgePress, { capture: true, passive: false });
-    stage.addEventListener("touchcancel", cancelEdgePress, { capture: true });
-    return () => {
-      stage.removeEventListener("touchstart", startEdgePress, { capture: true });
-      stage.removeEventListener("touchmove", holdEdgePress, { capture: true });
-      stage.removeEventListener("touchend", releaseEdgePress, { capture: true });
-      stage.removeEventListener("touchcancel", cancelEdgePress, { capture: true });
-    };
-  }, [bookSize?.singlePage]);
 
   const handleFlip = useCallback((event: FlipEvent) => {
     const bookPage = Math.max(0, Math.min(bookPages.length - 1, Math.trunc(event.data)));
@@ -507,9 +304,8 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
     currentPageRef.current = page;
     setCurrentBookPage(bookPage);
     setCurrentPage(page);
-    setBookPose(getBookPose(bookPage, bookPages.length));
     renderNearby(page);
-  }, [bookPages, renderNearby, setBookPose, setCurrentBookPage, setCurrentPage]);
+  }, [bookPages, renderNearby, setCurrentBookPage, setCurrentPage]);
 
   const handleInit = useCallback((event: FlipInitEvent) => {
     const pageFlip = flipbookRef.current?.pageFlip();
@@ -523,24 +319,17 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
       currentPageRef.current,
     );
     const page = bookPages[bookPage]?.pdfPage ?? currentPageRef.current;
-    const totalPages = pageFlip.getPageCount();
     currentBookPageRef.current = bookPage;
     currentPageRef.current = page;
     setCurrentBookPage(bookPage);
     setCurrentPage(page);
-    setBookPose(getBookPose(bookPage, totalPages));
     renderNearby(page);
-  }, [bookPages, renderNearby, setBookPose, setCurrentBookPage, setCurrentPage]);
-
-  const handleChangeState = useCallback((event: FlipStateEvent) => {
-    setIsTurning(event.data !== "read");
-  }, [setIsTurning]);
+  }, [bookPages, renderNearby, setCurrentBookPage, setCurrentPage]);
 
   function turn(direction: "previous" | "next") {
     const pageFlip = flipbookRef.current?.pageFlip();
-    if (!pageFlip || !canTurnPageFlip(pageFlip, direction)) return;
-    if (direction === "previous") pageFlip.flipPrev("bottom");
-    else pageFlip.flipNext("bottom");
+    if (direction === "previous") pageFlip?.flipPrev("bottom");
+    else pageFlip?.flipNext("bottom");
   }
 
   async function toggleFullscreen() {
@@ -587,41 +376,29 @@ export function FlipbookViewer({ title, pdfUrl, pageUrls, pageWidth, pageHeight,
         {(status || error) && <div className={`reader-status ${error ? "reader-error" : ""}`} role="status"><span className="loader" />{error || status}</div>}
         <button className="page-arrow page-arrow-left" type="button" onClick={() => turn("previous")} disabled={activeBookPage <= 0} aria-label="Previous page"><ChevronLeftIcon /></button>
         {pageCount > 0 && bookSize && (
-          <div className={`book-stage book-stage--${bookPose}${bookSize.singlePage ? " book-stage--single" : ""}${isTurning ? " book-stage--turning" : ""}${mobilePress ? ` book-stage--press-${mobilePress}` : ""}`}>
-            <HTMLFlipBook
-              key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
-              ref={flipbookRef}
-              className="flipbook"
-              width={bookSize.width}
-              height={bookSize.height}
-              size="fixed"
-              minWidth={bookSize.width}
-              maxWidth={bookSize.width}
-              minHeight={bookSize.height}
-              maxHeight={bookSize.height}
-              startPage={activeBookPage}
-              drawShadow={false}
-              flippingTime={760}
-              usePortrait={false}
-              singlePage={bookSize.singlePage}
-              startZIndex={1}
-              autoSize={true}
-              maxShadowOpacity={0}
-              showCover={true}
-              mobileScrollSupport={!bookSize.singlePage}
-              clickEventForward={true}
-              useMouseEvents={!bookSize.singlePage}
-              swipeDistance={30}
-              showPageCorners={true}
-              disableFlipByClick={false}
-              renderOnlyPageLengthChange={true}
-              onChangeState={handleChangeState}
-              onFlip={handleFlip}
-              onInit={handleInit}
-            >
-              {pageElements}
-            </HTMLFlipBook>
-          </div>
+          <HTMLFlipBook
+            key={`${bookSize.width}-${bookSize.height}-${bookSize.singlePage}-${bookPages.length}`}
+            ref={flipbookRef}
+            className="flipbook"
+            width={bookSize.width}
+            height={bookSize.height}
+            size="fixed"
+            minWidth={bookSize.width}
+            maxWidth={bookSize.width}
+            minHeight={bookSize.height}
+            maxHeight={bookSize.height}
+            startPage={activeBookPage}
+            drawShadow={false}
+            usePortrait={false}
+            singlePage={bookSize.singlePage}
+            maxShadowOpacity={0}
+            showCover={true}
+            renderOnlyPageLengthChange={true}
+            onFlip={handleFlip}
+            onInit={handleInit}
+          >
+            {pageElements}
+          </HTMLFlipBook>
         )}
         <button className="page-arrow page-arrow-right" type="button" onClick={() => turn("next")} disabled={activeBookPage >= bookPages.length - 1} aria-label="Next page"><ChevronRightIcon /></button>
       </section>
